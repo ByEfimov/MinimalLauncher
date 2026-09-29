@@ -70,6 +70,7 @@ fun LauncherRoot(s: LauncherState) {
             if (n % 30 == 0) s.weather.maybeUpdate(s.vehicle.location)
             if (n % 60 == 0) s.updateNight()
             if (n % 1800 == 900) s.updater.checkDaily()   // new release? (checks at most every 6 h)
+            if (n % 60 == 20) Optimizer.maybeAutoClean(ctx, s.media.sessionPackages())   // keeps the head unit from bogging down
             n++
             delay(1000)
         }
@@ -260,9 +261,9 @@ private fun MusicCard(s: LauncherState, modifier: Modifier) {
             // Sources
             Row(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 21.dp).fillMaxWidth().height(70.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 SourceButton(
-                    label = "Яндекс Музыка", selected = s.media.source == Source.YANDEX, modifier = Modifier.weight(214f),
+                    label = s.media.mainLabel, selected = s.media.source == Source.YANDEX, modifier = Modifier.weight(214f),
                     icon = { sel ->
-                        val ic = remember { Apps.icon(ctx, Apps.firstInstalled(ctx, Known.YANDEX_MUSIC)) }
+                        val ic = remember(s.media.mainPkg) { Apps.icon(ctx, s.media.mainPkg) }
                         if (ic != null) Image(ic, null, Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)), filterQuality = FilterQuality.High)
                         else MusicTileFallback(34.dp, if (sel) C.Yellow else C.Muted)
                     },

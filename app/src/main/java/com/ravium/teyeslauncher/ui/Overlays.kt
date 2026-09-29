@@ -82,6 +82,7 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.Name -> NameScreen(s)
                 is Overlay.Welcome -> WelcomeScreen(s)
                 is Overlay.Favorites -> FavoritesScreen(s)
+                is Overlay.Optimize -> OptimizeScreen(s)
                 null -> {}
             }
         }
@@ -189,10 +190,21 @@ private fun SettingsScreen(s: LauncherState) {
                 val uname = remember(v) { Prefs.str(ctx, Prefs.USER_NAME, "") }
                 RowCard("Имя в приветствии", uname.ifBlank { "Не задано" }, onClick = { s.overlay = Overlay.Name }) { Chevron() }
                 sw("Не выпускать в штатный лаунчер", Prefs.KIOSK, true)()
-                RowCard("Диагностика", "Камеры, плееры, GPS, разрешения", onClick = { s.overlay = Overlay.Diagnostics }) { Chevron() }
+                val mem = remember(v) { Optimizer.mem(ctx) }
+                RowCard("Оптимизация магнитолы", "Память занята на ${(mem.usedFraction * 100).toInt()}% · очистка, автозапуск, анимации",
+                    onClick = { s.overlay = Overlay.Optimize }) { StatusDot(mem.usedFraction < 0.85f, C.Yellow); Spacer(Modifier.width(10.dp)); Chevron() }
+                RowCard("Диагностика", "Плееры, GPS, разрешения, журнал ошибок", onClick = { s.overlay = Overlay.Diagnostics }) { Chevron() }
                 UpdateRow(s)
                 Spacer(Modifier.height(8.dp))
                 Section("Приложения")
+                val mainPkg = s.media.mainPkg
+                RowCard("Основной плеер", s.media.mainLabel + (if (Prefs.str(ctx, Prefs.MAIN_PLAYER) == null) " · авто" else "") + " · вторая вкладка — Bluetooth",
+                    onClick = { s.pick("Основной плеер", onReset = { s.media.setMainPlayer(null); s.overlay = Overlay.Settings }) { p ->
+                        s.media.setMainPlayer(p); s.settingsVersion++; s.overlay = Overlay.Settings } }) {
+                    val ic = remember(mainPkg) { Apps.icon(ctx, mainPkg) }
+                    if (ic != null) Image(ic, null, Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)), filterQuality = FilterQuality.High)
+                    Spacer(Modifier.width(8.dp)); Chevron()
+                }
                 AppRow(s, v, "Навигатор (карты)", Prefs.NAV, Known.NAV)
                 AppRow(s, v, "Телефон", Prefs.PHONE, Known.PHONE)
                 AppRow(s, v, "CarPlay / CarLink", Prefs.CARLINK, Known.CARLINK)
@@ -368,6 +380,101 @@ private fun DiagnosticsScreen(s: LauncherState) {
                     Spacer(Modifier.height(6.dp))
                     lines.forEach { Text(it, style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = C.Text2, lineHeight = 18.sp)) }
                 }
+            }
+        }
+    }
+}
+
+// ============================ OPTIMIZE ============================
+
+@Composable
+private fun OptimizeScreen(s: LauncherState) {
+    val ctx = LocalContext.current
+    val v = s.settingsVersion
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { while (true) { delay(2000); tick++ } }
+    val mem = remember(tick) { Optimizer.mem(ctx) }
+    val disk = remember(v) { Optimizer.storage() }
+    var busy by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf(Optimizer.lastResult) }
+    var autostart by remember { mutableStateOf<List<Optimizer.Candidate>?>(null) }
+    var unused by remember { mutableStateOf<List<Optimizer.Candidate>?>(null) }
+    LaunchedEffect(v) {   // re-read after returning from an app's Android page
+        autostart = withContext(Dispatchers.IO) { Optimizer.autostartApps(ctx) }
+        unused = withContext(Dispatchers.IO) { Optimizer.unusedApps(ctx) }
+    }
+    fun clean() { busy = true; Optimizer.clean(ctx, s.media.sessionPackages()) { result = it; busy = false; tick++ } }
+
+    Column(Modifier.fillMaxSize()) {
+        OverlayHeader("Оптимизация", action = { Pill(if (busy) "Очищаю…" else "Освободить память") { if (!busy) clean() } }) { s.overlay = Overlay.Settings }
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            // ---- left: state + switches + animations
+            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.fillMaxWidth().clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("Память", style = t(18f, C.Text, FontWeight.Medium))
+                        Spacer(Modifier.weight(1f))
+                        Text("${mem.usedMb} / ${mem.totalMb} МБ", style = t(16f, C.Text2))
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    val frac = mem.usedFraction.coerceIn(0f, 1f)
+                    val barColor = when { frac > 0.88f -> C.GuideRed; frac > 0.75f -> C.Yellow; else -> C.GuideGreen }
+                    Box(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Color(0xFF22262A))) {
+                        Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(barColor))
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text("Свободно ${mem.availMb} МБ" + (if (mem.low) " · памяти мало" else "") + (result?.let { " · $it" } ?: ""), style = t(14f, C.Muted))
+                    Spacer(Modifier.height(4.dp))
+                    val (free, total) = disk
+                    Text("Хранилище: свободно %.1f из %.0f ГБ".format(free, total) + if (total > 0 && free / total < 0.1f) " — почти заполнено, это замедляет систему" else "",
+                        style = t(14f, if (total > 0 && free / total < 0.1f) C.Yellow else C.Muted))
+                }
+                SwitchRow("Автоочистка памяти", remember(v) { Prefs.bool(ctx, Prefs.AUTO_CLEAN, true) }) { Prefs.put(ctx, Prefs.AUTO_CLEAN, it); s.settingsVersion++ }
+                Text("При включении зажигания, каждые 30 минут и когда памяти мало. Плеер, навигатор, телефон и CarLink не трогаются.",
+                    style = t(14f, C.Muted), modifier = Modifier.padding(horizontal = 6.dp))
+                SwitchRow("Лёгкий режим карты", remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }) { Prefs.put(ctx, Prefs.LITE_MAP, it); s.settingsVersion++ }
+                Text("Без 3D-наклона и пробок, карта сдвигается реже. Помогает, если карта дёргается.",
+                    style = t(14f, C.Muted), modifier = Modifier.padding(horizontal = 6.dp))
+                Spacer(Modifier.height(6.dp))
+                Section("Анимации системы")
+                val scale = remember(v) { Optimizer.animationScale(ctx) }
+                val devOn = remember(v) { Optimizer.developerOptionsOn(ctx) }
+                RowCard(
+                    "Скорость анимаций: " + (if (scale == 0f) "выкл" else "${scale}×"),
+                    if (scale <= 0.5f) "Уже ускорено — отлично" else if (devOn) "Нажмите → «Анимация окон», «Анимация переходов», «Длительность анимации» → 0,5×"
+                    else "Сначала включите «Для разработчиков» (кнопка ниже)",
+                    onClick = { Optimizer.openDeveloperOptions(ctx) }
+                ) { StatusDot(scale <= 0.5f, C.Yellow); Spacer(Modifier.width(10.dp)); Chevron() }
+                if (!devOn) RowCard("Включить «Для разработчиков»", "О устройстве → 7 раз нажать «Номер сборки», затем вернуться сюда",
+                    onClick = { Optimizer.openAboutPhone(ctx) }) { Chevron() }
+            }
+            // ---- right: apps to stop / disable
+            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Нажмите на приложение → «Остановить», а лишнее — «Отключить» или «Удалить». Вернуть можно там же.",
+                    style = t(14f, C.Muted), modifier = Modifier.padding(horizontal = 6.dp))
+                Section("Запускаются сами")
+                CandidateList(autostart, "Лишнего автозапуска нет") { Optimizer.openApp(ctx, it) }
+                Spacer(Modifier.height(6.dp))
+                Section("Не открывались 30 дней")
+                if (!Kiosk.hasUsageAccess(ctx)) RowCard("Нужен доступ к истории использования", "Нажмите, чтобы выдать", onClick = { Permissions.openUsage(ctx) }) { Chevron() }
+                else CandidateList(unused, "Все приложения используются") { Optimizer.openApp(ctx, it) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CandidateList(list: List<Optimizer.Candidate>?, empty: String, onOpen: (String) -> Unit) {
+    val ctx = LocalContext.current
+    when {
+        list == null -> Text("Загрузка…", style = t(15f, C.Muted), modifier = Modifier.padding(6.dp))
+        list.isEmpty() -> Text(empty, style = t(15f, C.Muted), modifier = Modifier.padding(6.dp))
+        else -> list.take(30).forEach { c ->
+            RowCard(c.label, if (c.system) "${c.reason} · системное — можно отключить" else c.reason, onClick = { onOpen(c.pkg) }) {
+                val ic = remember(c.pkg) { Apps.icon(ctx, c.pkg) }
+                if (ic != null) Image(ic, null, Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)), filterQuality = FilterQuality.High)
+                Spacer(Modifier.width(8.dp)); Chevron()
             }
         }
     }

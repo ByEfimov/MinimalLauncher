@@ -30,6 +30,7 @@ sealed interface Overlay {
     data object Name : Overlay
     data object Welcome : Overlay
     data object Favorites : Overlay
+    data object Optimize : Overlay
     data class Picker(val title: String, val onReset: (() -> Unit)? = null, val onPick: (String) -> Unit) : Overlay
 }
 

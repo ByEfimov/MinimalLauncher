@@ -309,6 +309,8 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
     val v = s.settingsVersion
     val style = remember(v) { Prefs.str(ctx, Prefs.MAP_STYLE, "dark") }
     val headingUp = remember(v) { Prefs.bool(ctx, Prefs.MAP_HEADING, true) }
+    val lite = remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }
+    var lastCam by remember { mutableStateOf(0L) }
     val car = remember { CarOverlay(carArrowBitmap(ctx)) }
     val flag = remember { FlagOverlay(flagBitmap(ctx)) }
     val line = remember {
@@ -355,6 +357,11 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
         owner.lifecycle.addObserver(obs)
         onDispose { owner.lifecycle.removeObserver(obs); map.onDetach() }
     }
+    // a full-screen panel (settings, apps…) covers the map → stop loading tiles until it closes
+    val covered = s.overlay != null
+    LaunchedEffect(covered) {
+        if (covered) map.onPause() else if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) map.onResume()
+    }
 
     // route line
     val route = s.nav.route
@@ -377,12 +384,14 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
         val gp = GeoPoint(loc.latitude, loc.longitude)
         car.point = gp
         car.bearing = s.vehicle.bearing
-        if (ctl.following) {
+        val now = SystemClock.elapsedRealtime()
+        if (ctl.following && (!lite || now - lastCam > 1500)) {
+            lastCam = now
             val speed = s.vehicle.speedKmh
             val zoom = when { speed > 90 -> 14.0; speed > 45 -> 15.0; else -> 16.0 } // whole levels = sharp tiles
             map.mapOrientation = if (headingUp) -s.vehicle.bearing else 0f
             runCatching { map.setMapCenterOffset(0, if (headingUp) (map.height * 0.22).toInt() else 0) }
-            map.controller.animateTo(gp, zoom, 700L)
+            if (lite) { map.controller.setZoom(zoom); map.controller.setCenter(gp) } else map.controller.animateTo(gp, zoom, 700L)
         }
         map.invalidate()
     }
@@ -398,7 +407,9 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
     val v = s.settingsVersion
     val style = remember(v) { Prefs.str(ctx, Prefs.MAP_STYLE, "dark") }
     val headingUp = remember(v) { Prefs.bool(ctx, Prefs.MAP_HEADING, true) }
-    val traffic = remember(v) { Prefs.bool(ctx, Prefs.MAP_TRAFFIC, true) }
+    val lite = remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }
+    val traffic = remember(v) { Prefs.bool(ctx, Prefs.MAP_TRAFFIC, true) } && !lite
+    var lastCam by remember { mutableStateOf(0L) }
 
     val mv = remember { com.yandex.mapkit.mapview.MapView(ctx) }
     val map = mv.mapWindow.map
@@ -443,6 +454,13 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) mv.onStart()
         onDispose { owner.lifecycle.removeObserver(obs); mv.onStop() }
     }
+    // a full-screen panel covers the map → stop rendering it (saves CPU/GPU while in settings or the app list)
+    val covered = s.overlay != null
+    var paused by remember { mutableStateOf(false) }
+    LaunchedEffect(covered) {
+        if (covered && !paused) { mv.onStop(); paused = true }
+        else if (!covered && paused) { paused = false; if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) mv.onStart() }
+    }
 
     // route
     val route = s.nav.route
@@ -476,15 +494,18 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
         car.geometry = p
         car.direction = s.vehicle.bearing
         car.isVisible = true
-        if (ctl.following) {
+        val now = SystemClock.elapsedRealtime()
+        if (ctl.following && (!lite || now - lastCam > 1500)) {
+            lastCam = now
             val speed = s.vehicle.speedKmh
             val zoom = when { speed > 90 -> 14.5f; speed > 45 -> 15.5f; else -> 16.5f }
             runCatching {
                 val w = mv.mapWindow.width(); val h = mv.mapWindow.height()
                 if (w > 0 && h > 0) mv.mapWindow.focusPoint = com.yandex.mapkit.ScreenPoint(w / 2f, if (headingUp) h * 0.7f else h / 2f)
             }
-            map.move(com.yandex.mapkit.map.CameraPosition(p, zoom, if (headingUp) s.vehicle.bearing else 0f, if (headingUp) 35f else 0f),
-                com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.8f), null)
+            val tilt = if (headingUp && !lite) 35f else 0f   // 3D tilt costs GPU — off in the light mode
+            map.move(com.yandex.mapkit.map.CameraPosition(p, zoom, if (headingUp) s.vehicle.bearing else 0f, tilt),
+                com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, if (lite) 0.4f else 0.8f), null)
         }
     }
 

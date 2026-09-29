@@ -77,6 +77,8 @@ object Autostart {
                 am.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PLAY))
             }
         }, 6000)
+        // after ignition: once the player has resumed, clear what piled up in the background
+        if (Prefs.bool(app, Prefs.AUTO_CLEAN, true)) main.postDelayed({ Optimizer.clean(app, emptySet()) }, 15000)
         if (Prefs.bool(app, Prefs.AUTO_NAV, false)) main.postDelayed({
             runCatching {
                 app.startActivity(Intent(app, MainActivity::class.java).putExtra(EXTRA_OPEN_NAV, true).addFlags(

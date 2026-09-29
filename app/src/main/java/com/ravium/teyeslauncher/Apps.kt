@@ -35,6 +35,9 @@ object Prefs {
     const val FAVORITES_PLACES = "favorite_places"
     const val ONBOARDED = "onboarded"
     const val BT_OPEN_APP = "bt_open_app"         // open TEYES BT screen when switching to Bluetooth
+    const val MAIN_PLAYER = "main_player"         // package of the main music tab (Яндекс Музыка by default)
+    const val AUTO_CLEAN = "auto_clean"           // free memory on ignition and every 30 min
+    const val LITE_MAP = "lite_map"               // lighter map: no 3D, no traffic, fewer camera moves
 
     fun list(ctx: Context, key: String): List<String> = str(ctx, key)?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
     fun putList(ctx: Context, key: String, v: List<String>) = put(ctx, key, v.joinToString(","))
@@ -52,6 +55,10 @@ object Prefs {
 /** Known packages on TEYES CC3 and popular apps. First installed one is used until the user picks another. */
 object Known {
     val YANDEX_MUSIC = listOf("ru.yandex.music")
+    /** Candidates for the main player tab — first installed is used until the user picks one in settings. */
+    val MAIN_PLAYER = listOf("ru.yandex.music", "com.uma.musicvk", "ru.mts.music.android", "com.zvooq.openplay", "com.spotify.music",
+        "com.google.android.apps.youtube.music", "com.apple.android.music", "com.soundcloud.android", "com.maxmpz.audioplayer",
+        "com.syu.music", "com.android.music")
     val NAV = listOf("ru.yandex.yandexnavi", "ru.yandex.yandexmaps", "ru.dublgis.dgismobile", "com.google.android.apps.maps", "com.waze")
     val PHONE = listOf("com.syu.bt", "com.syu.btapp", "com.syu.bluetooth")
     val BT_MUSIC = listOf("com.syu.bt", "com.syu.btapp", "com.syu.bluetooth", "com.syu.btmusic")

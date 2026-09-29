@@ -46,6 +46,17 @@ class MediaRepo(private val ctx: Context) {
         private set
     var hasAccess by mutableStateOf(false)
         private set
+    /** Package of the main music tab — chosen in settings (Яндекс Музыка, VK, Звук, Spotify, local player…). */
+    var mainPkg by mutableStateOf(resolveMain())
+        private set
+    val mainLabel: String get() = Apps.label(ctx, mainPkg).takeIf { it != mainPkg } ?: "Музыка"
+    private fun resolveMain() = Apps.resolve(ctx, Prefs.MAIN_PLAYER, Known.MAIN_PLAYER) ?: Known.MAIN_PLAYER.first()
+    fun setMainPlayer(pkg: String?) {
+        Prefs.put(ctx, Prefs.MAIN_PLAYER, pkg)
+        mainPkg = resolveMain()
+        version++
+    }
+    private fun isMain(pkg: String) = pkg == mainPkg
     /** Bumped on any session/metadata/playback change to trigger recomposition. */
     var version by mutableIntStateOf(0)
         private set
@@ -117,19 +128,19 @@ class MediaRepo(private val ctx: Context) {
      */
     private fun onStateChanged(c: MediaController, st: PlaybackState?) {
         if (st?.state != PlaybackState.STATE_PLAYING || c.packageName == ctx.packageName) return
-        val s = if (c.packageName in Known.YANDEX_MUSIC) Source.YANDEX else Source.BLUETOOTH
+        val s = if (isMain(c.packageName)) Source.YANDEX else Source.BLUETOOTH
         if (s != source) { source = s; Prefs.put(ctx, Prefs.SOURCE, s.name) }
         pauseOthers(s)
     }
 
     private fun controllerFor(s: Source): MediaController? = when (s) {
-        Source.YANDEX -> controllers.filter { it.packageName in Known.YANDEX_MUSIC }.maxByOrNull { if (isPlaying(it)) 1 else 0 }
-        // Bluetooth = any player except Яндекс Музыка; known TEYES BT apps first, then whatever is playing.
-        Source.BLUETOOTH -> controllers.filter { it.packageName !in Known.YANDEX_MUSIC && it.packageName != ctx.packageName }
+        Source.YANDEX -> controllers.filter { isMain(it.packageName) }.maxByOrNull { if (isPlaying(it)) 1 else 0 }
+        // Bluetooth = any player except the main one; known TEYES BT apps first, then whatever is playing.
+        Source.BLUETOOTH -> controllers.filter { !isMain(it.packageName) && it.packageName != ctx.packageName }
             .maxByOrNull { (if (it.packageName in Known.BT_SESSIONS) 2 else 0) + (if (isPlaying(it)) 1 else 0) }
     }
 
-    private fun inSource(pkg: String, s: Source) = if (s == Source.YANDEX) pkg in Known.YANDEX_MUSIC else pkg !in Known.YANDEX_MUSIC
+    private fun inSource(pkg: String, s: Source) = if (s == Source.YANDEX) isMain(pkg) else !isMain(pkg)
 
     val current: MediaController? get() { version; return controllerFor(source) }
 
@@ -161,7 +172,7 @@ class MediaRepo(private val ctx: Context) {
         val liked = likedLocal[key] ?: (rating?.ratingStyle == Rating.RATING_HEART && rating.hasHeart())
         val (defTitle, defArtist) = when {
             !hasAccess -> "Музыка" to "Дайте доступ"
-            source == Source.YANDEX -> "Яндекс Музыка" to "Нажмите ▶ для воспроизведения"
+            source == Source.YANDEX -> mainLabel to "Нажмите ▶ для воспроизведения"
             else -> "Bluetooth-аудио" to "Подключите телефон по Bluetooth"
         }
         return NowPlaying(
@@ -173,6 +184,9 @@ class MediaRepo(private val ctx: Context) {
             durationMs = dur, positionMs = pos, playing = playing, liked = liked, hasSession = c != null,
         )
     }
+
+    /** Apps that own a media session right now — never killed by the memory cleaner. */
+    fun sessionPackages(): Set<String> = controllers.map { it.packageName }.toSet()
 
     fun debug(): List<String> {
         if (!hasAccess) return listOf("Нет доступа к уведомлениям")
@@ -231,8 +245,8 @@ class MediaRepo(private val ctx: Context) {
     private fun coldStart(keyCode: Int) {
         when (source) {
             Source.YANDEX -> {
-                val pkg = Apps.firstInstalled(ctx, Known.YANDEX_MUSIC)
-                if (pkg == null) { Apps.toast(ctx, "Яндекс Музыка не установлена"); return }
+                val pkg = mainPkg
+                if (!Apps.installed(ctx, pkg)) { Apps.toast(ctx, "Выберите основной плеер в настройках"); return }
                 sendMediaButton(pkg, keyCode)
                 // If Yandex didn't start a session in the background, open it so the user can choose music.
                 main.postDelayed({ if (controllerFor(Source.YANDEX) == null && source == Source.YANDEX) Apps.launch(ctx, pkg) }, 2500)
@@ -267,14 +281,14 @@ class MediaRepo(private val ctx: Context) {
     /** Full-screen app of the current source (bottom-bar music button, long press on source). */
     fun openSourceApp(s: Source = source) {
         val pkg = when (s) {
-            Source.YANDEX -> Apps.firstInstalled(ctx, Known.YANDEX_MUSIC)
+            Source.YANDEX -> mainPkg
             Source.BLUETOOTH -> {
                 val playing = controllerFor(Source.BLUETOOTH)?.packageName
                 if (!Apps.launch(ctx, playing) && !BtAudio.activate(ctx, stayInApp = true)) Apps.toast(ctx, "Нет активного плеера")
                 return
             }
         }
-        if (!Apps.launch(ctx, pkg)) Apps.toast(ctx, if (s == Source.YANDEX) "Яндекс Музыка не установлена" else "Bluetooth-приложение не найдено")
+        if (!Apps.launch(ctx, pkg)) Apps.toast(ctx, if (s == Source.YANDEX) "Выберите основной плеер в настройках" else "Bluetooth-приложение не найдено")
     }
 }
 
