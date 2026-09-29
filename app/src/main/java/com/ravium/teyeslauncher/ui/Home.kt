@@ -69,6 +69,7 @@ fun LauncherRoot(s: LauncherState) {
             if (n % 5 == 0) s.status.refresh()
             if (n % 30 == 0) s.weather.maybeUpdate(s.vehicle.location)
             if (n % 60 == 0) s.updateNight()
+            if (n % 1800 == 900) s.updater.checkDaily()   // new release? (checks at most every 6 h)
             n++
             delay(1000)
         }
@@ -332,7 +333,7 @@ private fun SourceButton(
     icon: @Composable (Boolean) -> Unit, onClick: () -> Unit, onLongClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
-    val bg = if (selected) Brush.verticalGradient(listOf(Color(0xFF1A1810), C.YellowBg)) else Brush.verticalGradient(listOf(Color(0xFF16181A), Color(0xFF131517)))
+    val bg = if (selected) Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(Color(0xFF16181A), C.Yellow, 0.10f), C.YellowBg)) else Brush.verticalGradient(listOf(Color(0xFF16181A), Color(0xFF131517)))
     Row(
         modifier.fillMaxHeight().clip(shape).background(bg).border(1.5.dp, if (selected) C.YellowBorder else C.Stroke, shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(start = 22.dp, end = 10.dp),

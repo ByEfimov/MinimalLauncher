@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -35,15 +37,32 @@ object C {
     val Text2 = Color(0xFFC9CCCE)
     val Muted = Color(0xFF8C9195)
     val Track = Color(0xFF3A3D40)
-    val YellowBorder = Color(0xFF5C4E15)
-    val YellowBg = Color(0xFF16150F)
-    val Yellow = Color(0xFFF5C518)
+    // Accent colour (user-selectable in Настройки → Экран). Names kept for history: "Yellow" = accent.
+    val Yellow: Color get() = Accent.color
+    val YellowBorder: Color get() = androidx.compose.ui.graphics.lerp(Color(0xFF141618), Accent.color, 0.38f)
+    val YellowBg: Color get() = androidx.compose.ui.graphics.lerp(Color(0xFF121416), Accent.color, 0.07f)
     val SignRed = Color(0xFFE5262B)
     val GuideRed = Color(0xFFF0342A)
     val GuideYellow = Color(0xFFF2D32A)
     val GuideGreen = Color(0xFF5CD14A)
     val CarPlayTop = Color(0xFF5BD66A)
     val CarPlayBottom = Color(0xFF34B84A)
+}
+
+/** Accent colour. Compose state → every screen repaints instantly when it changes. */
+object Accent {
+    val options = listOf(
+        0xFFF5C518 to "Жёлтый", 0xFFFF9F0A to "Оранжевый", 0xFFFF453A to "Красный", 0xFFBF5AF2 to "Фиолетовый",
+        0xFF3D8BFF to "Синий", 0xFF40C8E0 to "Бирюзовый", 0xFF34C759 to "Зелёный", 0xFFE5E5EA to "Белый",
+    )
+    var color by androidx.compose.runtime.mutableStateOf(Color(0xFFF5C518))
+    fun load(ctx: android.content.Context) {
+        color = Color(com.ravium.teyeslauncher.Prefs.str(ctx, com.ravium.teyeslauncher.Prefs.ACCENT, "FFF5C518").toLong(16).toInt())
+    }
+    fun set(ctx: android.content.Context, argb: Long) {
+        com.ravium.teyeslauncher.Prefs.put(ctx, com.ravium.teyeslauncher.Prefs.ACCENT, argb.toString(16).uppercase())
+        color = Color(argb.toInt())
+    }
 }
 
 val Inter = FontFamily(

@@ -28,6 +28,8 @@ sealed interface Overlay {
     data class Search(val setHome: Boolean = false) : Overlay
     data object ApiKey : Overlay
     data object Name : Overlay
+    data object Welcome : Overlay
+    data object Favorites : Overlay
     data class Picker(val title: String, val onReset: (() -> Unit)? = null, val onPick: (String) -> Unit) : Overlay
 }
 
@@ -109,9 +111,9 @@ class MainActivity : ComponentActivity() {
         immersive()
         state.media.start() // picks up freshly granted media access
         state.settingsVersion++
-        if (!setupShown && Permissions.missing(this).isNotEmpty() && state.overlay == null) {
-            setupShown = true
-            state.overlay = Overlay.Setup
+        if (!setupShown && state.overlay == null) {
+            if (!Prefs.bool(this, Prefs.ONBOARDED, false)) { setupShown = true; state.overlay = Overlay.Welcome }
+            else if (Permissions.missing(this).isNotEmpty()) { setupShown = true; state.overlay = Overlay.Setup }
         }
     }
     private var setupShown = false

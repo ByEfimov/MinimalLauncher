@@ -225,6 +225,25 @@ class NavRepo(private val ctx: Context) {
     val provider: NavProvider get() = if (YandexMaps.enabled) YandexMaps.nav else OsmNav
     private var lastReroute = 0L
 
+    /** Избранные места (работа, дача…) — рядом с «Домой». */
+    var favorites by mutableStateOf(loadFavorites())
+        private set
+
+    private fun loadFavorites(): List<Place> = runCatching {
+        val a = JSONArray(Prefs.str(ctx, Prefs.FAVORITES_PLACES) ?: "[]")
+        (0 until a.length()).mapNotNull { Place.fromJson(a.getString(it)) }
+    }.getOrDefault(emptyList())
+
+    private fun saveFavorites(list: List<Place>) {
+        favorites = list
+        Prefs.put(ctx, Prefs.FAVORITES_PLACES, JSONArray(list.map { it.toJson() }).toString())
+    }
+
+    fun isFavorite(p: Place) = favorites.any { it.lat == p.lat && it.lon == p.lon }
+    fun toggleFavorite(p: Place) =
+        saveFavorites(if (isFavorite(p)) favorites.filterNot { it.lat == p.lat && it.lon == p.lon } else (favorites + p).takeLast(12))
+    fun removeFavorite(p: Place) = saveFavorites(favorites.filterNot { it.lat == p.lat && it.lon == p.lon })
+
     fun saveHome(p: Place) { home = p; Prefs.put(ctx, "home_place", p.toJson()) }
 
     fun routeTo(dest: Place, from: Location?) {

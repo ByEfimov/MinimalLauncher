@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -119,6 +120,10 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
             else NavInfo.hint?.let { NavHintChip(it) { s.nav.openInNavigator { s.openNavigator() } } }
             val cam = s.vehicle.limits.cameraAhead
             if (cam != null && remember(s.settingsVersion) { Prefs.bool(ctx, Prefs.CAMERA_WARN, true) }) CameraChip(cam)
+            s.updater.available?.let { rel ->
+                if (!s.updater.busy) StatusChip("Доступно обновление ${rel.version} — установить") { s.updater.install() }
+                else StatusChip(s.updater.status)
+            }
             when {
                 s.nav.busy && s.nav.route == null -> StatusChip("Строю маршрут…")
                 s.nav.message != null -> StatusChip(s.nav.message!!) { s.nav.message = null }
@@ -146,6 +151,10 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
                         s.nav.route?.destination == home -> s.nav.clear()
                         else -> s.nav.routeTo(home, s.vehicle.location)
                     }
+                }
+                Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
+                PillIcon(Icons.Outlined.StarOutline, "Избранное") {
+                    s.overlay = if (s.nav.favorites.isEmpty()) com.ravium.teyeslauncher.Overlay.Search() else com.ravium.teyeslauncher.Overlay.Favorites
                 }
                 Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
                 PillIcon(Icons.Outlined.Search, "Поиск") { s.overlay = com.ravium.teyeslauncher.Overlay.Search() }

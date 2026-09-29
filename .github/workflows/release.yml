@@ -1,13 +1,20 @@
-# Сборка и публикация релиза: git tag v1.2.3 && git push origin v1.2.3 (или ./release.sh 1.2.3)
-# Магнитолы с Minimal Drive сами найдут новую версию (Настройки → Обновления, проверка раз в сутки).
+# Автоматический релиз: каждый push в main собирает подписанный APK и публикует его в Releases.
+# Версия = appVersion (major.minor) из gradle.properties + номер сборки: 1.1 → 1.1.37.
+# Магнитолы с Minimal Drive сами находят новую версию (Настройки → Обновления, проверка раз в сутки).
 name: Release APK
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths-ignore: ['README.md', '**/*.md', '.gitignore']
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -32,8 +39,10 @@ jobs:
           mkdir -p keystore
           echo "$KEYSTORE_B64" | base64 -d > keystore/minimal-drive.jks
 
-      - name: Version from tag
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Version
+        run: |
+          BASE=$(grep '^appVersion=' gradle.properties | cut -d= -f2 | cut -d. -f1,2)
+          echo "VERSION=$BASE.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Build release APK
         run: |
@@ -43,6 +52,9 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.VERSION }}
           name: Minimal Drive ${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
           files: MinimalDrive-${{ env.VERSION }}.apk
           generate_release_notes: true
+          make_latest: true

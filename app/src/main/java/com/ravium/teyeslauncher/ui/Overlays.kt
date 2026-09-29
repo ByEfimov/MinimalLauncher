@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -78,6 +80,8 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.Search -> SearchScreen(s, o.setHome)
                 is Overlay.ApiKey -> ApiKeyScreen(s)
                 is Overlay.Name -> NameScreen(s)
+                is Overlay.Welcome -> WelcomeScreen(s)
+                is Overlay.Favorites -> FavoritesScreen(s)
                 null -> {}
             }
         }
@@ -200,6 +204,7 @@ private fun SettingsScreen(s: LauncherState) {
                 sw("Открыть навигатор", Prefs.AUTO_NAV, false)()
                 Spacer(Modifier.height(8.dp))
                 Section("Экран")
+                AccentRow(ctx)
                 val night = remember(v) { Prefs.str(ctx, Prefs.NIGHT, "auto") }
                 ChipsRow("Ночной режим", listOf("auto" to "Авто (закат)", "on" to "Всегда", "off" to "Выкл"), night) {
                     Prefs.put(ctx, Prefs.NIGHT, it); changed(); s.updateNight()
@@ -310,6 +315,7 @@ private fun DiagnosticsScreen(s: LauncherState) {
                 "Minimal Drive ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             ),
             "Разрешения" to Permissions.steps(ctx).map { (if (it.done) "✓ " else "✗ ") + it.title },
+            "Ошибки приложения" to CrashLog.read(ctx).lines().take(8).ifEmpty { listOf("") }.let { l -> if (l.all { it.isBlank() }) listOf("ошибок не было") else l },
             "Интернет-сервисы (нажмите «Проверить сервисы»)" to services.ifEmpty { listOf(if (checking) "проверка…" else "не проверялись") },
             "Карта" to listOf("Движок: " + (if (YandexMaps.enabled) "Яндекс MapKit" else "OpenStreetMap (Яндекс: ${YandexMaps.error ?: "—"})"),
                 "Маршруты и поиск: ${s.nav.provider.name}", "Дом: ${s.nav.home?.name ?: "не задан"}"),
@@ -337,6 +343,15 @@ private fun DiagnosticsScreen(s: LauncherState) {
                 s.pick("Bluetooth-музыка магнитолы", onReset = { Prefs.put(ctx, Prefs.BT_MUSIC, null); s.overlay = Overlay.Diagnostics }) { p ->
                     Prefs.put(ctx, Prefs.BT_MUSIC, p); s.overlay = Overlay.Diagnostics
                 }
+            }
+            Spacer(Modifier.width(10.dp))
+            Pill("Отправить отчёт") {
+                val text = "Minimal Drive — отчёт\n\n" + sections.joinToString("\n\n") { (h, l) -> "$h\n" + l.joinToString("\n") } +
+                    "\n\n--- Журнал ошибок ---\n" + CrashLog.read(ctx).ifBlank { "пусто" }
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, "Minimal Drive ${BuildConfig.VERSION_NAME}")
+                    .putExtra(Intent.EXTRA_TEXT, text.take(90_000))
+                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("report", text.take(90_000)))
+                if (!Apps.openFirst(ctx, Intent.createChooser(send, "Отправить отчёт"))) Apps.toast(ctx, "Отчёт скопирован — вставьте его в сообщение разработчику")
             }
             Spacer(Modifier.width(10.dp))
             Pill("Скопировать") {
@@ -469,6 +484,11 @@ private fun SearchScreen(s: LauncherState, setHome: Boolean) {
         val home = s.nav.home
         if (!setHome && home != null && query.isBlank()) {
             PlaceRow(Place("Домой", home.name, home.lat, home.lon), s, isHomeRow = true, onPick = { choose(home, false) }, onHome = null)
+            Spacer(Modifier.height(8.dp))
+        }
+        if (!setHome && query.isBlank()) s.nav.favorites.forEach { f ->
+            PlaceRow(f, s, isHomeRow = false, onPick = { choose(f, false) }, onHome = null)
+            Spacer(Modifier.height(8.dp))
         }
         if (loading) Text("Ищу…", style = t(16f, C.Muted), modifier = Modifier.padding(6.dp))
         error?.let { Text(it, style = t(16f, C.GuideRed), modifier = Modifier.padding(6.dp)) }
@@ -482,7 +502,7 @@ private fun SearchScreen(s: LauncherState, setHome: Boolean) {
 }
 
 @Composable
-private fun PlaceRow(p: Place, s: LauncherState, isHomeRow: Boolean, onPick: () -> Unit, onHome: (() -> Unit)?) {
+private fun PlaceRow(p: Place, s: LauncherState, isHomeRow: Boolean, onPick: () -> Unit, onHome: (() -> Unit)?, showStar: Boolean = !isHomeRow) {
     val dist = s.vehicle.location?.let {
         val r = FloatArray(1); android.location.Location.distanceBetween(it.latitude, it.longitude, p.lat, p.lon, r)
         if (r[0] >= 1000) "%.1f км".format(r[0] / 1000) else "${r[0].toInt()} м"
@@ -500,6 +520,13 @@ private fun PlaceRow(p: Place, s: LauncherState, isHomeRow: Boolean, onPick: () 
             if (p.description.isNotBlank()) Text(p.description, style = t(14f, C.Muted), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (dist != null) Text(dist, style = t(15f, C.Text2), modifier = Modifier.padding(horizontal = 10.dp))
+        if (showStar) {
+            val fav = s.nav.isFavorite(p)
+            Box(Modifier.size(48.dp).clip(CircleShape).clickable { s.nav.toggleFavorite(p) }, contentAlignment = Alignment.Center) {
+                Icon(if (fav) Icons.Filled.Star else androidx.compose.material.icons.Icons.Outlined.StarOutline, "В избранное",
+                    tint = if (fav) C.Yellow else C.Text2, modifier = Modifier.size(24.dp))
+            }
+        }
         if (onHome != null) Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onHome), contentAlignment = Alignment.Center) {
             Icon(androidx.compose.material.icons.Icons.Outlined.Home, "Сделать домом", tint = C.Text2, modifier = Modifier.size(24.dp))
         }
@@ -576,5 +603,144 @@ private fun NameScreen(s: LauncherState) {
         Spacer(Modifier.height(10.dp))
         Box(Modifier.fillMaxWidth().height(64.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
             .clickable { save() }, contentAlignment = Alignment.Center) { Text("Сохранить", style = t(18f, C.Text, FontWeight.Medium)) }
+    }
+}
+
+// ============================ ACCENT ============================
+
+@Composable
+private fun AccentRow(ctx: android.content.Context) {
+    Column(Modifier.fillMaxWidth().clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(horizontal = 20.dp, vertical = 14.dp)) {
+        Text("Цвет акцента", style = t(18f, C.Text, FontWeight.Medium))
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Accent.options.forEach { (argb, name) ->
+                val col = Color(argb.toInt())
+                val sel = Accent.color == col
+                Box(Modifier.size(44.dp).clip(CircleShape).background(col)
+                    .border(if (sel) 3.dp else Hairline, if (sel) Color.White else C.Stroke, CircleShape)
+                    .clickable { Accent.set(ctx, argb) })
+            }
+        }
+    }
+}
+
+// ============================ FAVORITES ============================
+
+@Composable
+private fun FavoritesScreen(s: LauncherState) {
+    Column(Modifier.fillMaxSize()) {
+        OverlayHeader("Избранные места", action = { Pill("Добавить") { s.overlay = Overlay.Search() } }) { s.overlay = null }
+        Text("Нажмите — маршрут. Добавить: найдите место в поиске и нажмите ☆.", style = t(15f, C.Muted), modifier = Modifier.padding(start = 6.dp, top = 2.dp, bottom = 12.dp))
+        androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val home = s.nav.home
+            if (home != null) item {
+                PlaceRow(Place("Домой", home.name, home.lat, home.lon), s, isHomeRow = true, onPick = { s.overlay = null; s.nav.routeTo(home, s.vehicle.location) }, onHome = null)
+            }
+            items(s.nav.favorites.size) { i ->
+                val f = s.nav.favorites[i]
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { PlaceRow(f, s, isHomeRow = false, onPick = { s.overlay = null; s.nav.routeTo(f, s.vehicle.location) }, onHome = null, showStar = false) }
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.size(68.dp).clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).clickable { s.nav.removeFavorite(f) },
+                        contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Delete, "Удалить", tint = C.Text2, modifier = Modifier.size(24.dp)) }
+                }
+            }
+        }
+    }
+}
+
+// ============================ WELCOME ============================
+
+/** First run: name → home address → permissions. Everything optional, nothing blocks the launcher. */
+@Composable
+private fun WelcomeScreen(s: LauncherState) {
+    val ctx = LocalContext.current
+    var step by remember { mutableIntStateOf(0) }
+    var name by remember { mutableStateOf(Prefs.str(ctx, Prefs.USER_NAME, "")) }
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<Place>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    fun finish() { Prefs.put(ctx, Prefs.ONBOARDED, true); s.settingsVersion++; s.overlay = null }
+    fun next() {
+        if (step == 0) { Prefs.put(ctx, Prefs.USER_NAME, name.trim()); s.settingsVersion++ }
+        if (step < 2) step++ else finish()
+    }
+    LaunchedEffect(query) {
+        if (query.trim().length < 3) { results = emptyList(); return@LaunchedEffect }
+        delay(600); loading = true
+        s.nav.provider.search(query.trim(), s.vehicle.location, { results = it; loading = false }, { loading = false })
+    }
+    val titles = listOf("Как вас зовут?", "Где ваш дом?", "Разрешения")
+    Column(Modifier.fillMaxSize()) {
+        OverlayHeader("Добро пожаловать") { finish() }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, bottom = 14.dp)) {
+            repeat(3) { i ->
+                Box(Modifier.width(if (i == step) 36.dp else 12.dp).height(8.dp).clip(RoundedCornerShape(4.dp))
+                    .background(if (i <= step) C.Yellow else C.Stroke))
+                Spacer(Modifier.width(8.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("Шаг ${step + 1} из 3 · ${titles[step]}", style = t(18f, C.Text, FontWeight.Medium))
+        }
+        Column(Modifier.weight(1f)) {
+            when (step) {
+                0 -> {
+                    androidx.compose.material3.TextField(
+                        value = name, onValueChange = { name = it.take(24) },
+                        modifier = Modifier.fillMaxWidth().height(72.dp).clip(CardShape).border(Hairline, C.Stroke, CardShape),
+                        placeholder = { Text("Имя — для приветствия на главном экране", style = t(20f, C.Muted)) },
+                        textStyle = t(24f, C.Text), singleLine = true,
+                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                            focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
+                            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onNext = { next() }),
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    AccentRow(ctx)
+                }
+                1 -> {
+                    s.nav.home?.let { h -> Text("Сейчас: ${h.name}", style = t(16f, C.Text2), modifier = Modifier.padding(6.dp)) }
+                    androidx.compose.material3.TextField(
+                        value = query, onValueChange = { query = it },
+                        modifier = Modifier.fillMaxWidth().height(72.dp).clip(CardShape).border(Hairline, C.Stroke, CardShape),
+                        placeholder = { Text("Адрес дома — для кнопки «Домой» на карте", style = t(20f, C.Muted)) },
+                        textStyle = t(22f, C.Text), singleLine = true,
+                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                            focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
+                            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+                    )
+                    if (loading) Text("Ищу…", style = t(16f, C.Muted), modifier = Modifier.padding(6.dp))
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(results.size) { i ->
+                            val p = results[i]
+                            PlaceRow(p, s, isHomeRow = false, onPick = { s.nav.saveHome(p); Apps.toast(ctx, "Дом сохранён"); step = 2 }, onHome = null, showStar = false)
+                        }
+                    }
+                }
+                else -> Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val steps = remember(s.settingsVersion) { Permissions.steps(ctx) }
+                    steps.forEachIndexed { i, st ->
+                        RowCard("${i + 1}. ${st.title}", st.why, onClick = { st.open(ctx) }) {
+                            Text(if (st.done) "Готово" else "Включить", style = t(15f, if (st.done) C.GuideGreen else C.Yellow, FontWeight.Medium))
+                            Spacer(Modifier.width(10.dp)); StatusDot(st.done); Spacer(Modifier.width(6.dp)); Chevron()
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (step > 0) Box(Modifier.weight(1f).height(64.dp).clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape)
+                .clickable { step-- }, contentAlignment = Alignment.Center) { Text("Назад", style = t(18f, C.Text2, FontWeight.Medium)) }
+            if (step == 1) Box(Modifier.weight(1f).height(64.dp).clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape)
+                .clickable { step = 2 }, contentAlignment = Alignment.Center) { Text("Пропустить", style = t(18f, C.Text2, FontWeight.Medium)) }
+            Box(Modifier.weight(2f).height(64.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
+                .clickable { next() }, contentAlignment = Alignment.Center) {
+                Text(if (step == 2) "Готово" else "Далее", style = t(18f, C.Text, FontWeight.Medium))
+            }
+        }
     }
 }

@@ -28,6 +28,8 @@ import com.yandex.runtime.Error
 class MinimalDriveApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
+        com.ravium.teyeslauncher.ui.Accent.load(this)
         YandexMaps.init(this)
     }
 }

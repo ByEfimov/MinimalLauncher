@@ -12,11 +12,11 @@ android {
         minSdk = 29
         // TEYES CC3 = Android 10. targetSdk 29 keeps package visibility / background rules simple.
         targetSdk = 29
-        // Version comes from gradle.properties → appVersion (CI overrides it with the git tag: v1.2.3 → 1.2.3)
+        // Version comes from gradle.properties → appVersion (CI adds the build number: 1.1 → 1.1.<run>)
         val appVersion = (project.findProperty("appVersion") as String?) ?: "1.0.0"
         val parts = appVersion.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 } + listOf(0, 0, 0)
         versionName = appVersion
-        versionCode = parts[0] * 10000 + parts[1] * 100 + parts[2]
+        versionCode = parts[0] * 1_000_000 + parts[1] * 10_000 + parts[2]   // 1.1.37 → 1010037
         // OTA updates: GitHub "owner/repo" whose Releases contain the APK (see gradle.properties).
         // Яндекс Карты: free MapKit key from developer.tech.yandex.ru (empty → OpenStreetMap)
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"${(project.findProperty("yandexMapKitKey") as String?) ?: ""}\"")

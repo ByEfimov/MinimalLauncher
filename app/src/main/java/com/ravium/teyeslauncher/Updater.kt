@@ -37,7 +37,7 @@ class Updater(private val ctx: Context) {
 
     fun checkDaily() {
         val last = ctx.getSharedPreferences("minimal_drive", Context.MODE_PRIVATE).getLong("update_checked", 0)
-        if (System.currentTimeMillis() - last > 24 * 3600_000L) check(silent = true)
+        if (System.currentTimeMillis() - last > 6 * 3600_000L) check(silent = true)   // every 6 h
     }
 
     fun check(silent: Boolean = false) {

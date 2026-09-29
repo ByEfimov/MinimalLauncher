@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# MinimalLauncher
-=======
 # Minimal Drive
 
 Минималистичный лаунчер для магнитол TEYES (проверялся на CC3, Android 10, 1280×720).
@@ -36,9 +33,6 @@ Android Studio → Open → эта папка. Сборка: `./gradlew assemble
 2. GitHub → Settings → Secrets and variables → Actions → **New repository secret**
    `SIGNING_KEYSTORE_B64` = результат команды `base64 -i keystore/minimal-drive.jks | pbcopy` (скопируется в буфер).
 
-Каждый релиз:
-```
-./release.sh 1.2.0
-```
-GitHub Actions соберёт подписанный APK и опубликует релиз `v1.2.0`; магнитолы предложат обновиться.
->>>>>>> 9992966 (Minimal Drive 1.1.0 — лаунчер для TEYES CC3)
+Дальше релизы выходят **сами**: каждый `git push` в `main` → GitHub Actions собирает подписанный APK
+и публикует релиз `v1.2.<номер сборки>`. Магнитолы предлагают обновиться (проверка раз в сутки или
+вручную: Настройки → Обновления). Чтобы поднять «большую» версию — поменяйте `appVersion` в `gradle.properties`.

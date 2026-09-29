@@ -31,6 +31,9 @@ object Prefs {
     const val MAP_TRAFFIC = "map_traffic"         // Яндекс пробки
     const val YANDEX_KEY = "yandex_mapkit_key"    // entered in the app
     const val USER_NAME = "user_name"             // greeting in the header
+    const val ACCENT = "accent"                   // ARGB hex
+    const val FAVORITES_PLACES = "favorite_places"
+    const val ONBOARDED = "onboarded"
     const val BT_OPEN_APP = "bt_open_app"         // open TEYES BT screen when switching to Bluetooth
 
     fun list(ctx: Context, key: String): List<String> = str(ctx, key)?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
