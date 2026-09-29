@@ -68,6 +68,7 @@ object Autostart {
     fun run(ctx: Context) {
         val app = ctx.applicationContext
         if (Kiosk.enabled(app)) Kiosk.bringHome(app)
+        LauncherState.current?.vehicle?.resetTrip()   // new trip starts with the ignition
         if (Prefs.bool(app, Prefs.AUTO_PLAY, true)) main.postDelayed({
             // Give Bluetooth / the player a few seconds to come back, then continue what was playing.
             val am = app.getSystemService(android.media.AudioManager::class.java)

@@ -50,6 +50,32 @@ class Vehicle(private val ctx: Context) {
         private set
     var providers: List<String> = emptyList()
         private set
+    // ---- odometer / trip (for reminders, the trip tile and the parking screen)
+    private var odoM = Prefs.str(ctx, Prefs.ODO_GPS_M, "0").toDoubleOrNull() ?: 0.0
+    private var odoSaved = odoM
+    /** metres since ignition (reset in [resetTrip]) */
+    var tripM by mutableStateOf(0.0)
+        private set
+    var tripStartAt = SystemClock.elapsedRealtime()
+        private set
+    var movingMs = 0L
+        private set
+    /** last moment the car was really moving (> 5 km/h) */
+    var lastMovingAt = SystemClock.elapsedRealtime()
+        private set
+    fun resetTrip() { tripM = 0.0; tripStartAt = SystemClock.elapsedRealtime(); movingMs = 0 }
+
+    /** Odometer in km: the value the user entered from the dashboard + what GPS has counted since. */
+    val odometerKm: Double get() {
+        val base = Prefs.str(ctx, Prefs.ODO_BASE)?.toDoubleOrNull() ?: return odoM / 1000
+        val at = Prefs.str(ctx, Prefs.ODO_BASE_GPS, "0").toDoubleOrNull() ?: 0.0
+        return base + (odoM - at) / 1000
+    }
+    fun setOdometer(km: Double) {
+        Prefs.put(ctx, Prefs.ODO_BASE, km.toString()); Prefs.put(ctx, Prefs.ODO_BASE_GPS, odoM.toString()); fixVersion++
+    }
+    val odometerSet get() = Prefs.str(ctx, Prefs.ODO_BASE) != null
+
     private var lastFix = 0L
     private var lastGpsFix = 0L
     private var prev: Location? = null
@@ -89,6 +115,15 @@ class Vehicle(private val ctx: Context) {
             val kmh = (smooth * 3.6f).roundToInt()
             speedKmh = if (kmh < 3) 0 else kmh.coerceAtMost(260)
         }
+        if (p != null && speedKmh >= 5 && (!l.hasAccuracy() || l.accuracy <= 35f)) {
+            val d = l.distanceTo(p).toDouble()
+            val dt = l.time - p.time
+            if (d < 400 && dt in 1..15_000) {
+                odoM += d; tripM += d; movingMs += dt
+                if (odoM - odoSaved > 300) { odoSaved = odoM; Prefs.put(ctx, Prefs.ODO_GPS_M, odoM.toString()) }
+            }
+        }
+        if (speedKmh > 5) lastMovingAt = now
         if (l.hasBearing() && (mps ?: 0f) > 1.5f) bearing = l.bearing
         else if (p != null && l.distanceTo(p) > 8) bearing = p.bearingTo(l).let { if (it < 0) it + 360 else it }
 
@@ -104,7 +139,7 @@ class Vehicle(private val ctx: Context) {
         }
     }
 
-    init { limits.onCameraApproach = { alerts.camera() } }
+    init { limits.onCameraApproach = { alerts.camera(it) } }
 
     val hasPermission get() = ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 

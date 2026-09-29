@@ -256,7 +256,7 @@ class NavRepo(private val ctx: Context) {
 
     fun clear() { route = null; progress = null; pending = null; message = null }
 
-    private fun setRoute(r: Route, at: Location) { route = r; lastIdx = 0; updateProgress(r, at) }
+    private fun setRoute(r: Route, at: Location) { route = r; lastIdx = 0; Voice.resetRoute(); updateProgress(r, at) }
 
     /** Project the car onto the route line → along-route distance → next manoeuvre. */
     private fun updateProgress(r: Route, l: Location) {
@@ -295,8 +295,9 @@ class NavRepo(private val ctx: Context) {
         val r = route ?: return
         val dest = FloatArray(1)
         Location.distanceBetween(l.latitude, l.longitude, r.destination.lat, r.destination.lon, dest)
-        if (dest[0] < 40) { message = "Вы приехали"; route = null; progress = null; return }
+        if (dest[0] < 40) { message = "Вы приехали"; route = null; progress = null; Voice.say(ctx, "Вы приехали", important = false); return }
         updateProgress(r, l)
+        Voice.onProgress(ctx, progress, (if (l.hasSpeed()) l.speed * 3.6f else 0f).toInt())
         val now = SystemClock.elapsedRealtime()
         val off = distanceToLine(l, r.points)
         val stale = now - r.builtAt > 3 * 60_000L   // refresh ETA every few minutes

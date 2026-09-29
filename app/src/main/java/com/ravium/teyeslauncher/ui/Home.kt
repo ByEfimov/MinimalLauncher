@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Rect
 import android.os.SystemClock
 import android.provider.Settings
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -71,6 +72,11 @@ fun LauncherRoot(s: LauncherState) {
             if (n % 60 == 0) s.updateNight()
             if (n % 1800 == 900) s.updater.checkDaily()   // new release? (checks at most every 6 h)
             if (n % 60 == 20) Optimizer.maybeAutoClean(ctx, s.media.sessionPackages())   // keeps the head unit from bogging down
+            // parking screen: standing still long enough and no route
+            val still = SystemClock.elapsedRealtime() - s.vehicle.lastMovingAt > (Prefs.str(ctx, Prefs.PARKING_DELAY, "2").toLongOrNull() ?: 2L) * 60_000L
+            if (!still) s.parkDismissed = false
+            val park = Prefs.bool(ctx, Prefs.PARKING, true) && still && !s.parkDismissed && s.nav.route == null && HomeLayout.bigMap(ctx)
+            if (park != s.parked) s.parked = park
             n++
             delay(1000)
         }
@@ -79,14 +85,44 @@ fun LauncherRoot(s: LauncherState) {
         Column(Modifier.fillMaxSize().padding(start = 33.dp, end = 34.dp)) {
             Header(s)
             Spacer(Modifier.height(3.dp))
-            Row(Modifier.fillMaxWidth().height(540.dp)) {
-                Column(Modifier.width(442.dp).fillMaxHeight()) {
-                    MusicCard(s, Modifier.fillMaxWidth().weight(1f))
-                    Spacer(Modifier.height(15.dp))
-                    ServiceBar(s, Modifier.fillMaxWidth().height(97.dp))
+            Box(Modifier.fillMaxWidth().height(540.dp)) {
+                // Home stays composed underneath (the map is expensive to recreate); other pages slide over it.
+                // Layout is configurable: Настройки → Экран → Главный экран
+                val v = s.settingsVersion
+                val blocks = remember(v) { HomeLayout.blocks(ctx) }
+                val left = remember(v) { HomeLayout.sideLeft(ctx) }
+                val bigMap = remember(v) { HomeLayout.bigMap(ctx) }
+                val sideW = if (remember(v) { HomeLayout.wide(ctx) }) 560.dp else 442.dp
+                Row(Modifier.fillMaxSize()) {
+                    val side: @Composable () -> Unit = { SideColumn(s, blocks, Modifier.width(sideW).fillMaxHeight()) }
+                    if (left) { side(); Spacer(Modifier.width(14.dp)) }
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        if (!bigMap) ParkingPanel(s, Modifier.fillMaxSize(), standalone = true)
+                        else {
+                            MapCard(s, Modifier.fillMaxSize())
+                            if (InstantUi && s.parked && s.page == Page.HOME) ParkingPanel(s, Modifier.fillMaxSize())
+                            else androidx.compose.animation.AnimatedVisibility(s.parked && s.page == Page.HOME, enter = androidx.compose.animation.fadeIn(),
+                                exit = androidx.compose.animation.fadeOut()) { ParkingPanel(s, Modifier.fillMaxSize()) }
+                        }
+                    }
+                    if (!left) { Spacer(Modifier.width(14.dp)); side() }
                 }
-                Spacer(Modifier.width(14.dp))
-                MapCard(s, Modifier.weight(1f).fillMaxHeight())
+                if (InstantUi) { if (s.page != Page.HOME) Box(Modifier.fillMaxSize().background(C.Bg)) {
+                    when (s.page) { Page.TILES -> TilesPage(s); Page.REMINDERS -> RemindersPage(s); Page.OPTIMIZE -> OptimizePage(s); Page.HOME -> {} } } }
+                else androidx.compose.animation.AnimatedContent(targetState = s.page, label = "page", transitionSpec = {
+                    val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                    (androidx.compose.animation.slideInHorizontally { it * dir / 4 } + androidx.compose.animation.fadeIn()) togetherWith
+                        (androidx.compose.animation.slideOutHorizontally { -it * dir / 4 } + androidx.compose.animation.fadeOut())
+                }) { p ->
+                    if (p != Page.HOME) Box(Modifier.fillMaxSize().background(C.Bg)) {
+                        when (p) {
+                            Page.TILES -> TilesPage(s)
+                            Page.REMINDERS -> RemindersPage(s)
+                            Page.OPTIMIZE -> OptimizePage(s)
+                            Page.HOME -> {}
+                        }
+                    } else Box(Modifier.fillMaxSize())
+                }
             }
             Spacer(Modifier.height(21.dp))
             Box(Modifier.fillMaxWidth().padding(start = 17.dp, end = 16.dp).height(Hairline).background(Color(0xFF1C1F21)))
@@ -101,24 +137,61 @@ fun LauncherRoot(s: LauncherState) {
     }
 }
 
+/** Side column of the main screen: music stretches, the other blocks are 97 units tall (or share the height when there's no music). */
+@Composable
+private fun SideColumn(s: LauncherState, blocks: List<String>, modifier: Modifier) {
+    val hasMusic = "music" in blocks
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(15.dp)) {
+        blocks.forEach { id ->
+            val m = if (id == "music" || (!hasMusic && id != "service")) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(97.dp)
+            when {
+                id == "music" -> MusicCard(s, m)
+                id == "service" -> ServiceBar(s, m)
+                id.startsWith("tile=app:") -> HomeTile(s, "app", id.removePrefix("tile=app:"), m)
+                id.startsWith("tile=") -> HomeTile(s, id.removePrefix("tile="), null, m)
+            }
+        }
+        if (blocks.all { it == "service" }) Spacer(Modifier.weight(1f))
+    }
+}
+
 // ============================ HEADER ============================
 
 @SuppressLint("DiscouragedApi")
 @Composable
 private fun Header(s: LauncherState) {
     val ctx = LocalContext.current
-    val name = remember(s.settingsVersion) { Prefs.str(ctx, Prefs.USER_NAME, "").trim() }
     val logoRes = remember { ctx.resources.getIdentifier("brand_logo", "drawable", ctx.packageName) }
     Row(Modifier.fillMaxWidth().height(122.dp), verticalAlignment = Alignment.CenterVertically) {
         // Left block sits above the music column
-        Row(Modifier.width(456.dp), verticalAlignment = Alignment.CenterVertically) {
+        var dragX by remember { mutableFloatStateOf(0f) }
+        Row(Modifier.width(456.dp).fillMaxHeight()
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(onDragStart = { dragX = 0f }, onDragEnd = {
+                    val th = 60.dp.toPx()
+                    if (dragX < -th) s.turnPage(1) else if (dragX > th) s.turnPage(-1)
+                    dragX = 0f
+                }, onDragCancel = { dragX = 0f }) { ch, amount -> ch.consume(); dragX += amount }
+            }
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { s.turnPage(1) },
+            verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(35.dp))
             Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
                 // Put your logo PNG at res/drawable-nodpi/brand_logo.png — it appears here automatically.
                 Image(painterResource(if (logoRes != 0) logoRes else com.ravium.teyeslauncher.R.drawable.ic_logo), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             }
             Spacer(Modifier.width(24.dp))
-            Text(if (name.isEmpty()) "Добро пожаловать" else "Добро пожаловать, $name", style = ts(17f, C.Muted), maxLines = 1)
+            // current screen — swipe here (or tap) to switch
+            Text(s.page.title, style = ts(19f, C.Text, FontWeight.SemiBold), maxLines = 1)
+            Spacer(Modifier.width(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Page.entries.forEach { p ->
+                    Box(Modifier.padding(horizontal = 2.5.dp).size(if (p == s.page) 7.dp else 5.dp).clip(CircleShape).background(if (p == s.page) C.Text else C.Muted.copy(alpha = 0.6f)))
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Icon(Icons.Outlined.Swipe, "Свайп — другой экран", tint = C.Muted, modifier = Modifier.size(22.dp).graphicsLayer { translationX = (dragX * 0.15f).coerceIn(-12f, 12f) })
+            Spacer(Modifier.width(12.dp))
         }
         // Right block sits above the map card
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
@@ -143,10 +216,13 @@ private fun Header(s: LauncherState) {
             Spacer(Modifier.width(22.dp))
             SignalBars(s.status.online)
             Spacer(Modifier.width(26.dp))
-            Text(s.weather.tempC?.let { "$it°" } ?: "--°", style = ts(20f, C.Text))
-            Spacer(Modifier.width(14.dp))
-            Icon(weatherIcon(s.weather.code), null, tint = C.Text, modifier = Modifier.size(28.dp))
-            Spacer(Modifier.width(22.dp))
+            Row(Modifier.clip(RoundedCornerShape(14.dp)).clickable { s.overlay = Overlay.Weather }.padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(s.weather.tempC?.let { "$it°" } ?: "--°", style = ts(20f, C.Text))
+                Spacer(Modifier.width(14.dp))
+                Icon(weatherIcon(s.weather.code), null, tint = C.Text, modifier = Modifier.size(28.dp))
+            }
+            Spacer(Modifier.width(12.dp))
         }
     }
 }
@@ -416,37 +492,16 @@ fun CameraChip(c: SpeedLimit.CameraAhead) {
 @Composable
 private fun BottomBar(s: LauncherState, modifier: Modifier) {
     val ctx = LocalContext.current
-    val v = s.settingsVersion
-    /** Slot with default action; long-press assigns any app (or back to default). */
-    @Composable
-    fun RowScope.Slot(n: Int, title: String, default: () -> Unit, glyph: @Composable () -> Unit) {
-        val custom = remember(v) { Prefs.str(ctx, Prefs.DOCK + n)?.takeIf { Apps.installed(ctx, it) } }
-        NavItem(false,
-            onClick = { if (custom != null) Apps.launch(ctx, custom) else default() },
-            onLongClick = {
-                s.pick("Кнопка «$title»", onReset = { Prefs.put(ctx, Prefs.DOCK + n, null); s.settingsVersion++ }) { p ->
-                    Prefs.put(ctx, Prefs.DOCK + n, p); s.settingsVersion++
-                }
-            }
-        ) {
-            val ic = remember(custom) { Apps.icon(ctx, custom) }
-            if (ic != null) Image(ic, null, Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)), filterQuality = FilterQuality.High) else glyph()
-        }
-    }
+    val items = remember(s.settingsVersion) { Dock.load(ctx).filter { !it.startsWith("app=") || Apps.installed(ctx, it.removePrefix("app=")) } }
     Row(modifier.padding(start = 23.dp, end = 22.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        NavItem(true, { s.overlay = null }) { Icon(Icons.Rounded.Home, null, tint = Color.White, modifier = Modifier.size(32.dp)) }
-        NavDivider()
-        Slot(1, "Навигация", { s.launchAssigned(Prefs.NAV, Known.NAV, "Выберите навигатор") }) {
-            Icon(Icons.Outlined.NearMe, null, tint = C.Text2, modifier = Modifier.size(30.dp))
+        items.forEachIndexed { i, id ->
+            if (i > 0) NavDivider()
+            val sel = Dock.selected(s, id)
+            // long press on any button → configure the bar
+            NavItem(sel, { Dock.open(s, id) }, { s.overlay = Overlay.Dock }) {
+                DockGlyph(id, if (id == "home") 32 else 30, if (sel) Color.White else C.Text2)
+            }
         }
-        NavDivider()
-        Slot(2, "Музыка", { s.media.openSourceApp() }) { MusicNotesIcon(30.dp) }
-        NavDivider()
-        Slot(3, "Телефон", { s.launchAssigned(Prefs.PHONE, Known.PHONE, "Выберите приложение телефона") }) {
-            Icon(Icons.Outlined.Phone, null, tint = C.Text2, modifier = Modifier.size(30.dp))
-        }
-        NavDivider()
-        NavItem(false, { s.overlay = Overlay.Drawer }) { GridIcon(28.dp) }
     }
 }
 

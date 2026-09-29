@@ -57,13 +57,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private fun t(size: Float, color: Color = C.Text, weight: FontWeight = FontWeight.Normal) =
+internal fun t(size: Float, color: Color = C.Text, weight: FontWeight = FontWeight.Normal) =
     TextStyle(fontFamily = Inter, fontSize = size.sp, color = color, fontWeight = weight, lineHeight = (size * 1.25f).sp)
 
 @Composable
 fun BoxScope.Overlays(s: LauncherState) {
     val o = s.overlay
-    AnimatedVisibility(o != null, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.matchParentSize()) {
+    if (InstantUi && o == null) return
+    AnimatedVisibility(o != null, enter = if (InstantUi) androidx.compose.animation.EnterTransition.None else fadeIn(), exit = fadeOut(), modifier = Modifier.matchParentSize()) {
         Box(
             Modifier.fillMaxSize().background(Color(0xF20A0C0D))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
@@ -74,15 +75,21 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.Picker -> AppGrid(s, o.title, drawer = false, onReset = o.onReset?.let { r -> { s.overlay = null; r() } }) { pkg ->
                     s.overlay = null; o.onPick(pkg)
                 }
-                is Overlay.Settings -> SettingsScreen(s)
+                is Overlay.Settings -> SettingsHome(s)
+                is Overlay.SettingsCat -> SettingsCategory(s, o.id)
                 is Overlay.Setup -> SetupScreen(s)
                 is Overlay.Diagnostics -> DiagnosticsScreen(s)
                 is Overlay.Search -> SearchScreen(s, o.setHome)
                 is Overlay.ApiKey -> ApiKeyScreen(s)
-                is Overlay.Name -> NameScreen(s)
                 is Overlay.Welcome -> WelcomeScreen(s)
                 is Overlay.Favorites -> FavoritesScreen(s)
-                is Overlay.Optimize -> OptimizeScreen(s)
+                is Overlay.Weather -> WeatherScreen(s)
+                is Overlay.Dock -> DockScreen(s)
+                is Overlay.HomeLayout -> HomeLayoutScreen(s)
+                is Overlay.Wheel -> WheelScreen(s)
+                is Overlay.TileCatalog -> TileCatalogScreen(s)
+                is Overlay.Odometer -> OdometerScreen(s)
+                is Overlay.ReminderEdit -> ReminderEditScreen(s, o.id, o.template)
                 null -> {}
             }
         }
@@ -90,7 +97,7 @@ fun BoxScope.Overlays(s: LauncherState) {
 }
 
 @Composable
-private fun OverlayHeader(title: String, action: (@Composable RowScope.() -> Unit)? = null, onClose: () -> Unit) {
+internal fun OverlayHeader(title: String, action: (@Composable RowScope.() -> Unit)? = null, onClose: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = t(30f, C.Text, FontWeight.Medium))
         Spacer(Modifier.weight(1f))
@@ -102,7 +109,7 @@ private fun OverlayHeader(title: String, action: (@Composable RowScope.() -> Uni
 }
 
 @Composable
-private fun Pill(label: String, onClick: () -> Unit) {
+internal fun Pill(label: String, onClick: () -> Unit) {
     Box(Modifier.height(56.dp).clip(RoundedCornerShape(28.dp)).background(C.Card).border(Hairline, C.Stroke, RoundedCornerShape(28.dp))
         .clickable(onClick = onClick).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) { Text(label, style = t(16f, C.Text2, FontWeight.Medium)) }
 }
@@ -170,96 +177,13 @@ private fun AppTile(app: AppEntry, starred: Boolean, onClick: () -> Unit, onLong
 // ============================ SETTINGS ============================
 
 @Composable
-private fun SettingsScreen(s: LauncherState) {
-    val ctx = LocalContext.current
-    val v = s.settingsVersion
-    fun changed() { s.settingsVersion++ }
-    fun sw(title: String, key: String, def: Boolean, after: () -> Unit = {}) =
-        @Composable { SwitchRow(title, remember(v) { Prefs.bool(ctx, key, def) }) { Prefs.put(ctx, key, it); changed(); after() } }
-
-    Column(Modifier.fillMaxSize()) {
-        OverlayHeader("Настройки") { s.overlay = null }
-        Spacer(Modifier.height(18.dp))
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            // ---- left column
-            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Section("Лаунчер")
-                val missing = remember(v) { Permissions.missing(ctx).size }
-                RowCard("Настройка магнитолы", if (missing == 0) "Все разрешения выданы" else "Не выполнено пунктов: $missing",
-                    onClick = { s.overlay = Overlay.Setup }) { StatusDot(missing == 0); Spacer(Modifier.width(10.dp)); Chevron() }
-                val uname = remember(v) { Prefs.str(ctx, Prefs.USER_NAME, "") }
-                RowCard("Имя в приветствии", uname.ifBlank { "Не задано" }, onClick = { s.overlay = Overlay.Name }) { Chevron() }
-                sw("Не выпускать в штатный лаунчер", Prefs.KIOSK, true)()
-                val mem = remember(v) { Optimizer.mem(ctx) }
-                RowCard("Оптимизация магнитолы", "Память занята на ${(mem.usedFraction * 100).toInt()}% · очистка, автозапуск, анимации",
-                    onClick = { s.overlay = Overlay.Optimize }) { StatusDot(mem.usedFraction < 0.85f, C.Yellow); Spacer(Modifier.width(10.dp)); Chevron() }
-                RowCard("Диагностика", "Плееры, GPS, разрешения, журнал ошибок", onClick = { s.overlay = Overlay.Diagnostics }) { Chevron() }
-                UpdateRow(s)
-                Spacer(Modifier.height(8.dp))
-                Section("Приложения")
-                val mainPkg = s.media.mainPkg
-                RowCard("Основной плеер", s.media.mainLabel + (if (Prefs.str(ctx, Prefs.MAIN_PLAYER) == null) " · авто" else "") + " · вторая вкладка — Bluetooth",
-                    onClick = { s.pick("Основной плеер", onReset = { s.media.setMainPlayer(null); s.overlay = Overlay.Settings }) { p ->
-                        s.media.setMainPlayer(p); s.settingsVersion++; s.overlay = Overlay.Settings } }) {
-                    val ic = remember(mainPkg) { Apps.icon(ctx, mainPkg) }
-                    if (ic != null) Image(ic, null, Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)), filterQuality = FilterQuality.High)
-                    Spacer(Modifier.width(8.dp)); Chevron()
-                }
-                AppRow(s, v, "Навигатор (карты)", Prefs.NAV, Known.NAV)
-                AppRow(s, v, "Телефон", Prefs.PHONE, Known.PHONE)
-                AppRow(s, v, "CarPlay / CarLink", Prefs.CARLINK, Known.CARLINK)
-                sw("Bluetooth: открывать BT-экран магнитолы", Prefs.BT_OPEN_APP, false)()
-                Text("Иконки нижней панели: долгое нажатие на иконку → выбрать приложение.", style = t(14f, C.Muted), modifier = Modifier.padding(horizontal = 6.dp))
-                Spacer(Modifier.height(8.dp))
-                Section("При включении зажигания")
-                sw("Продолжить музыку", Prefs.AUTO_PLAY, true)()
-                sw("Открыть навигатор", Prefs.AUTO_NAV, false)()
-                Spacer(Modifier.height(8.dp))
-                Section("Экран")
-                AccentRow(ctx)
-                val night = remember(v) { Prefs.str(ctx, Prefs.NIGHT, "auto") }
-                ChipsRow("Ночной режим", listOf("auto" to "Авто (закат)", "on" to "Всегда", "off" to "Выкл"), night) {
-                    Prefs.put(ctx, Prefs.NIGHT, it); changed(); s.updateNight()
-                }
-                val dim = remember(v) { Prefs.str(ctx, Prefs.NIGHT_DIM, "0.3") }
-                ChipsRow("Затемнение ночью", listOf("0.15" to "Слабое", "0.3" to "Среднее", "0.45" to "Сильное"), dim) { Prefs.put(ctx, Prefs.NIGHT_DIM, it); changed() }
-                RowCard("Системные настройки Android", onClick = { Apps.openFirst(ctx, Intent(Settings.ACTION_SETTINGS)) }) { Chevron() }
-            }
-            // ---- right column
-            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Section("Карта")
-                RowCard("Карта: " + (if (YandexMaps.enabled) "Яндекс" else "OpenStreetMap"),
-                    if (YandexMaps.enabled) "Ключ Яндекса введён · нажмите, чтобы изменить" else "Нажмите, чтобы ввести ключ Яндекс Карт",
-                    onClick = { s.overlay = Overlay.ApiKey }) { Chevron() }
-                val home = s.nav.home
-                RowCard("Дом", home?.let { it.name + (if (it.description.isNotBlank()) ", " + it.description else "") } ?: "Не задан — нажмите, чтобы найти адрес",
-                    onClick = { s.overlay = Overlay.Search(setHome = true) }) { Chevron() }
-                val style = remember(v) { Prefs.str(ctx, Prefs.MAP_STYLE, "dark") }
-                ChipsRow("Стиль карты", listOf("dark" to "Тёмная", "light" to "Светлая"), style) { Prefs.put(ctx, Prefs.MAP_STYLE, it); changed() }
-                sw("Поворачивать по направлению движения", Prefs.MAP_HEADING, true)()
-                if (YandexMaps.enabled) sw("Пробки", Prefs.MAP_TRAFFIC, true)()
-                Spacer(Modifier.height(8.dp))
-                Section("Скорость")
-                sw("Ограничения скорости (OpenStreetMap)", Prefs.LIMITS, true)()
-                val tol = remember(v) { Prefs.str(ctx, Prefs.LIMIT_TOLERANCE, "10") }
-                ChipsRow("Превышение считается от", listOf("0" to "0 км/ч", "10" to "+10", "19" to "+19", "20" to "+20"), tol) {
-                    Prefs.put(ctx, Prefs.LIMIT_TOLERANCE, it); changed()
-                }
-                sw("Звук при превышении", Prefs.SOUND_OVERSPEED, true)()
-                sw("Предупреждать о камерах", Prefs.CAMERA_WARN, true)()
-            }
-        }
-    }
-}
-
-@Composable
-private fun UpdateRow(s: LauncherState) {
+internal fun UpdateRow(s: LauncherState, info: String? = null) {
     val u = s.updater
     val rel = u.available
     RowCard(
         if (rel != null) "Установить обновление ${rel.version}" else "Обновления",
         u.status.ifEmpty { "Версия ${BuildConfig.VERSION_NAME} · нажмите, чтобы проверить" },
-        onClick = { if (rel != null) u.install() else u.check() }
+        onClick = { if (rel != null) u.install() else u.check() }, info = info
     ) {
         if (u.busy) Text("…", style = t(18f, C.Muted)) else if (rel != null) StatusDot(false, C.Yellow)
         Spacer(Modifier.width(10.dp)); Chevron()
@@ -275,8 +199,6 @@ fun SetupScreen(s: LauncherState) {
     var hint by remember { mutableStateOf<Permissions.Step?>(null) }
     Column(Modifier.fillMaxSize()) {
         OverlayHeader("Настройка магнитолы") { s.overlay = null }
-        if (Prefs.str(ctx, Prefs.USER_NAME, "").isBlank())
-            RowCard("Как вас зовут?", "Имя для приветствия на главном экране", onClick = { s.overlay = Overlay.Name }) { Chevron() }
         Text("Нажмите на пункт → включите Minimal Drive → вернитесь кнопкой «Назад». Зелёная точка — готово.",
             style = t(16f, C.Muted), modifier = Modifier.padding(start = 6.dp, top = 4.dp, bottom = 14.dp))
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -301,7 +223,10 @@ fun SetupScreen(s: LauncherState) {
         }
         Spacer(Modifier.height(12.dp))
         Box(Modifier.fillMaxWidth().height(64.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
-            .clickable { s.overlay = null }, contentAlignment = Alignment.Center) {
+            .clickable {
+                if (!steps.all { it.done }) Prefs.put(ctx, Prefs.SETUP_SNOOZE, (System.currentTimeMillis() + 86_400_000L).toString())
+                s.overlay = null
+            }, contentAlignment = Alignment.Center) {
             Text(if (steps.all { it.done }) "Готово" else "Позже", style = t(18f, C.Text, FontWeight.Medium))
         }
     }
@@ -371,7 +296,7 @@ private fun DiagnosticsScreen(s: LauncherState) {
                 ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("diag", text))
                 Apps.toast(ctx, "Скопировано")
             }
-        }) { s.overlay = Overlay.Settings }
+        }) { s.overlay = Overlay.SettingsCat("base") }
         Spacer(Modifier.height(12.dp))
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             sections.forEach { (title, lines) ->
@@ -388,7 +313,7 @@ private fun DiagnosticsScreen(s: LauncherState) {
 // ============================ OPTIMIZE ============================
 
 @Composable
-private fun OptimizeScreen(s: LauncherState) {
+fun OptimizePage(s: LauncherState) {
     val ctx = LocalContext.current
     val v = s.settingsVersion
     var tick by remember { mutableIntStateOf(0) }
@@ -406,8 +331,6 @@ private fun OptimizeScreen(s: LauncherState) {
     fun clean() { busy = true; Optimizer.clean(ctx, s.media.sessionPackages()) { result = it; busy = false; tick++ } }
 
     Column(Modifier.fillMaxSize()) {
-        OverlayHeader("Оптимизация", action = { Pill(if (busy) "Очищаю…" else "Освободить память") { if (!busy) clean() } }) { s.overlay = Overlay.Settings }
-        Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             // ---- left: state + switches + animations
             Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -427,15 +350,17 @@ private fun OptimizeScreen(s: LauncherState) {
                     Text("Свободно ${mem.availMb} МБ" + (if (mem.low) " · памяти мало" else "") + (result?.let { " · $it" } ?: ""), style = t(14f, C.Muted))
                     Spacer(Modifier.height(4.dp))
                     val (free, total) = disk
+                    Spacer(Modifier.height(12.dp))
+                    Box(Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(14.dp)).background(C.YellowBg).border(1.5.dp, C.YellowBorder, RoundedCornerShape(14.dp))
+                        .clickable { if (!busy) clean() }, contentAlignment = Alignment.Center) {
+                        Text(if (busy) "Очищаю…" else "Освободить память", style = t(17f, C.Text, FontWeight.Medium))
+                    }
+                    Spacer(Modifier.height(10.dp))
                     Text("Хранилище: свободно %.1f из %.0f ГБ".format(free, total) + if (total > 0 && free / total < 0.1f) " — почти заполнено, это замедляет систему" else "",
                         style = t(14f, if (total > 0 && free / total < 0.1f) C.Yellow else C.Muted))
                 }
-                SwitchRow("Автоочистка памяти", remember(v) { Prefs.bool(ctx, Prefs.AUTO_CLEAN, true) }) { Prefs.put(ctx, Prefs.AUTO_CLEAN, it); s.settingsVersion++ }
-                Text("При включении зажигания, каждые 30 минут и когда памяти мало. Плеер, навигатор, телефон и CarLink не трогаются.",
-                    style = t(14f, C.Muted), modifier = Modifier.padding(horizontal = 6.dp))
-                SwitchRow("Лёгкий режим карты", remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }) { Prefs.put(ctx, Prefs.LITE_MAP, it); s.settingsVersion++ }
-                Text("Без 3D-наклона и пробок, карта сдвигается реже. Помогает, если карта дёргается.",
-                    style = t(14f, C.Muted), modifier = Modifier.padding(horizontal = 6.dp))
+                SwitchRow("Автоочистка памяти", remember(v) { Prefs.bool(ctx, Prefs.AUTO_CLEAN, true) }, "При включении зажигания, каждые 30 минут и когда памяти мало. Плеер, навигатор, телефон и CarLink не трогаются.") { Prefs.put(ctx, Prefs.AUTO_CLEAN, it); s.settingsVersion++ }
+                SwitchRow("Лёгкий режим карты", remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }, "Без 3D-наклона и пробок, карта сдвигается реже. Помогает, если карта дёргается.") { Prefs.put(ctx, Prefs.LITE_MAP, it); s.settingsVersion++ }
                 Spacer(Modifier.height(6.dp))
                 Section("Анимации системы")
                 val scale = remember(v) { Optimizer.animationScale(ctx) }
@@ -465,7 +390,7 @@ private fun OptimizeScreen(s: LauncherState) {
 }
 
 @Composable
-private fun CandidateList(list: List<Optimizer.Candidate>?, empty: String, onOpen: (String) -> Unit) {
+internal fun CandidateList(list: List<Optimizer.Candidate>?, empty: String, onOpen: (String) -> Unit) {
     val ctx = LocalContext.current
     when {
         list == null -> Text("Загрузка…", style = t(15f, C.Muted), modifier = Modifier.padding(6.dp))
@@ -482,34 +407,57 @@ private fun CandidateList(list: List<Optimizer.Candidate>?, empty: String, onOpe
 
 // ============================ building blocks ============================
 
-@Composable private fun Section(title: String) = Text(title.uppercase(), style = t(13f, C.Muted, FontWeight.Medium).copy(letterSpacing = 1.5.sp), modifier = Modifier.padding(start = 6.dp, top = 4.dp))
+@Composable internal fun Section(title: String) = Text(title.uppercase(), style = t(13f, C.Muted, FontWeight.Medium).copy(letterSpacing = 1.5.sp), modifier = Modifier.padding(start = 6.dp, top = 4.dp))
 
-@Composable private fun StatusDot(ok: Boolean, bad: Color = C.GuideRed) = Box(Modifier.size(12.dp).clip(CircleShape).background(if (ok) C.GuideGreen else bad))
+@Composable internal fun StatusDot(ok: Boolean, bad: Color = C.GuideRed) = Box(Modifier.size(12.dp).clip(CircleShape).background(if (ok) C.GuideGreen else bad))
 
+/** Small «i» button: tap → the description of the setting unfolds below it. */
 @Composable
-private fun RowCard(title: String, subtitle: String? = null, onClick: (() -> Unit)? = null, trailing: @Composable RowScope.() -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = t(18f, C.Text, FontWeight.Medium))
-            if (subtitle != null) { Spacer(Modifier.height(3.dp)); Text(subtitle, style = t(14f, C.Muted), maxLines = 2, overflow = TextOverflow.Ellipsis) }
+internal fun InfoDot(open: Boolean, onClick: () -> Unit) {
+    Box(Modifier.padding(start = 8.dp).size(30.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(22.dp).clip(CircleShape).background(if (open) C.Yellow else Color(0xFF2A2E31)), contentAlignment = Alignment.Center) {
+            Text("i", style = t(14f, if (open) Color(0xFF111111) else C.Text2, FontWeight.SemiBold).copy(fontFamily = FontFamily.Serif))
         }
-        trailing()
     }
 }
 
-@Composable private fun Chevron() = Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = C.Muted, modifier = Modifier.size(28.dp))
+@Composable
+internal fun InfoText(text: String) {
+    Text(text, style = t(14.5f, C.Text2).copy(lineHeight = 20.sp), modifier = Modifier.padding(top = 10.dp).fillMaxWidth()
+        .clip(RoundedCornerShape(12.dp)).background(Color(0xFF1A1D20)).padding(horizontal = 14.dp, vertical = 10.dp))
+}
 
 @Composable
-private fun AppRow(s: LauncherState, v: Int, title: String, key: String, known: List<String>) {
+internal fun RowCard(title: String, subtitle: String? = null, onClick: (() -> Unit)? = null, info: String? = null, trailing: @Composable RowScope.() -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = t(18f, C.Text, FontWeight.Medium), modifier = Modifier.weight(1f, fill = false))
+                    if (info != null) InfoDot(open) { open = !open }
+                }
+                if (subtitle != null) { Spacer(Modifier.height(3.dp)); Text(subtitle, style = t(14f, C.Muted), maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            }
+            trailing()
+        }
+        if (open && info != null) InfoText(info)
+    }
+}
+
+@Composable internal fun Chevron() = Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = C.Muted, modifier = Modifier.size(28.dp))
+
+@Composable
+internal fun AppRow(s: LauncherState, v: Int, title: String, key: String, known: List<String>, info: String? = null, back: Overlay = Overlay.Settings) {
     val ctx = LocalContext.current
     val pkg = remember(v) { Apps.resolve(ctx, key, known) }
     val saved = remember(v) { Prefs.str(ctx, key) != null }
-    RowCard(title, if (pkg == null) "Не выбрано" else Apps.label(ctx, pkg) + if (saved) "" else " · авто", onClick = {
-        s.pick(title) { p -> Prefs.put(ctx, key, p); s.settingsVersion++; s.overlay = Overlay.Settings }
+    RowCard(title, if (pkg == null) "Не выбрано" else Apps.label(ctx, pkg) + if (saved) "" else " · авто", info = info, onClick = {
+        s.pick(title) { p -> Prefs.put(ctx, key, p); s.settingsVersion++; s.overlay = back }
     }) {
         val ic = remember(pkg) { Apps.icon(ctx, pkg) }
         if (ic != null) Image(ic, null, Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)), filterQuality = FilterQuality.High)
@@ -518,8 +466,8 @@ private fun AppRow(s: LauncherState, v: Int, title: String, key: String, known: 
 }
 
 @Composable
-private fun SwitchRow(title: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    RowCard(title, onClick = { onChange(!value) }) {
+internal fun SwitchRow(title: String, value: Boolean, info: String? = null, onChange: (Boolean) -> Unit) {
+    RowCard(title, onClick = { onChange(!value) }, info = info) {
         Box(
             Modifier.width(58.dp).height(32.dp).clip(RoundedCornerShape(16.dp)).background(if (value) Color(0xFF3A7D44) else Color(0xFF2A2D30)),
             contentAlignment = if (value) Alignment.CenterEnd else Alignment.CenterStart
@@ -529,11 +477,16 @@ private fun SwitchRow(title: String, value: Boolean, onChange: (Boolean) -> Unit
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChipsRow(title: String, options: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
+internal fun ChipsRow(title: String, options: List<Pair<String, String>>, selected: String, info: String? = null, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
-        Text(title, style = t(18f, C.Text, FontWeight.Medium))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = t(18f, C.Text, FontWeight.Medium))
+            if (info != null) InfoDot(open) { open = !open }
+        }
+        if (open && info != null) InfoText(info)
         Spacer(Modifier.height(10.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { (id, label) ->
@@ -648,7 +601,7 @@ private fun ApiKeyScreen(s: LauncherState) {
     var key by remember { mutableStateOf(Prefs.str(ctx, Prefs.YANDEX_KEY) ?: "") }
     val clip = ctx.getSystemService(ClipboardManager::class.java)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        OverlayHeader("Яндекс Карты") { s.overlay = Overlay.Settings }
+        OverlayHeader("Яндекс Карты") { s.overlay = Overlay.SettingsCat("map") }
         Text("Каждому нужен свой бесплатный ключ MapKit:\n1. На телефоне или компьютере откройте developer.tech.yandex.ru\n" +
             "2. «Подключить API» → «MapKit Mobile SDK» → скопируйте ключ\n3. Вставьте его сюда (или наберите) и нажмите «Сохранить».\n" +
             "Без ключа работает OpenStreetMap.", style = t(16f, C.Text2), modifier = Modifier.padding(start = 6.dp, top = 4.dp, bottom = 16.dp))
@@ -682,41 +635,10 @@ private fun ApiKeyScreen(s: LauncherState) {
     }
 }
 
-// ============================ NAME ============================
-
-@Composable
-private fun NameScreen(s: LauncherState) {
-    val ctx = LocalContext.current
-    var name by remember { mutableStateOf(Prefs.str(ctx, Prefs.USER_NAME, "")) }
-    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    fun save() { Prefs.put(ctx, Prefs.USER_NAME, name.trim()); s.settingsVersion++; s.overlay = null }
-    Column(Modifier.fillMaxSize()) {
-        OverlayHeader("Как вас зовут?") { s.overlay = null }
-        Spacer(Modifier.height(12.dp))
-        androidx.compose.material3.TextField(
-            value = name, onValueChange = { name = it.take(24) },
-            modifier = Modifier.fillMaxWidth().height(72.dp).focusRequester(focus).clip(CardShape).border(Hairline, C.Stroke, CardShape),
-            placeholder = { Text("Имя", style = t(22f, C.Muted)) },
-            textStyle = t(24f, C.Text), singleLine = true,
-            colors = androidx.compose.material3.TextFieldDefaults.colors(
-                focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
-                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { save() }),
-        )
-        Spacer(Modifier.height(10.dp))
-        Text("На главном экране: «Добро пожаловать, ${name.trim().ifEmpty { "…" }}»", style = t(16f, C.Muted), modifier = Modifier.padding(6.dp))
-        Spacer(Modifier.height(10.dp))
-        Box(Modifier.fillMaxWidth().height(64.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
-            .clickable { save() }, contentAlignment = Alignment.Center) { Text("Сохранить", style = t(18f, C.Text, FontWeight.Medium)) }
-    }
-}
-
 // ============================ ACCENT ============================
 
 @Composable
-private fun AccentRow(ctx: android.content.Context) {
+internal fun AccentRow(ctx: android.content.Context) {
     Column(Modifier.fillMaxWidth().clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(horizontal = 20.dp, vertical = 14.dp)) {
         Text("Цвет акцента", style = t(18f, C.Text, FontWeight.Medium))
         Spacer(Modifier.height(12.dp))
@@ -766,13 +688,11 @@ private fun WelcomeScreen(s: LauncherState) {
     // Step survives leaving to Android settings (the launcher may be recreated meanwhile) — kept in prefs.
     var step by remember { mutableIntStateOf(Prefs.str(ctx, "welcome_step", "0").toIntOrNull() ?: 0) }
     LaunchedEffect(step) { Prefs.put(ctx, "welcome_step", step.toString()) }
-    var name by remember { mutableStateOf(Prefs.str(ctx, Prefs.USER_NAME, "")) }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     fun finish() { Prefs.put(ctx, Prefs.ONBOARDED, true); s.settingsVersion++; s.overlay = null }
     fun next() {
-        if (step == 0) { Prefs.put(ctx, Prefs.USER_NAME, name.trim()); s.settingsVersion++ }
         if (step < 2) step++ else finish()
     }
     LaunchedEffect(query) {
@@ -780,9 +700,9 @@ private fun WelcomeScreen(s: LauncherState) {
         delay(600); loading = true
         s.nav.provider.search(query.trim(), s.vehicle.location, { results = it; loading = false }, { loading = false })
     }
-    val titles = listOf("Как вас зовут?", "Где ваш дом?", "Разрешения")
+    val titles = listOf("Оформление", "Где ваш дом?", "Разрешения")
     Column(Modifier.fillMaxSize()) {
-        OverlayHeader("Добро пожаловать") { finish() }
+        OverlayHeader("Первый запуск") { finish() }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp, bottom = 14.dp)) {
             repeat(3) { i ->
                 Box(Modifier.width(if (i == step) 36.dp else 12.dp).height(8.dp).clip(RoundedCornerShape(4.dp))
@@ -795,18 +715,8 @@ private fun WelcomeScreen(s: LauncherState) {
         Column(Modifier.weight(1f)) {
             when (step) {
                 0 -> {
-                    androidx.compose.material3.TextField(
-                        value = name, onValueChange = { name = it.take(24) },
-                        modifier = Modifier.fillMaxWidth().height(72.dp).clip(CardShape).border(Hairline, C.Stroke, CardShape),
-                        placeholder = { Text("Имя — для приветствия на главном экране", style = t(20f, C.Muted)) },
-                        textStyle = t(24f, C.Text), singleLine = true,
-                        colors = androidx.compose.material3.TextFieldDefaults.colors(
-                            focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
-                            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
-                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onNext = { next() }),
-                    )
-                    Spacer(Modifier.height(16.dp))
+                    Text("Выберите цвет акцента — им подсвечиваются кнопки и активные элементы. Всё остальное можно поменять потом в настройках.",
+                        style = t(17f, C.Text2), modifier = Modifier.padding(start = 6.dp, bottom = 14.dp))
                     AccentRow(ctx)
                 }
                 1 -> {

@@ -20,33 +20,53 @@ import androidx.compose.ui.unit.Density
 import com.ravium.teyeslauncher.ui.DesignHeight
 import com.ravium.teyeslauncher.ui.LauncherRoot
 
+/** Main screens under the header — switched by swiping the greeting. */
+enum class Page(val title: String) { HOME("Главная"), TILES("Плитки"), REMINDERS("Напоминания"), OPTIMIZE("Оптимизация") }
+
 sealed interface Overlay {
     data object Drawer : Overlay
     data object Settings : Overlay
+    data class SettingsCat(val id: String) : Overlay
     data object Setup : Overlay
     data object Diagnostics : Overlay
     data class Search(val setHome: Boolean = false) : Overlay
     data object ApiKey : Overlay
-    data object Name : Overlay
     data object Welcome : Overlay
     data object Favorites : Overlay
-    data object Optimize : Overlay
+    data object Weather : Overlay
+    data object Dock : Overlay
+    data object HomeLayout : Overlay
+    data object Wheel : Overlay
+    data object TileCatalog : Overlay
+    data object Odometer : Overlay
+    data class ReminderEdit(val id: Long? = null, val template: Int = -1) : Overlay
     data class Picker(val title: String, val onReset: (() -> Unit)? = null, val onPick: (String) -> Unit) : Overlay
 }
 
 /** Everything the UI needs, owned by the activity. @Stable: lets Compose skip cards whose inputs didn't change. */
 @androidx.compose.runtime.Stable
 class LauncherState(val activity: MainActivity) {
+    companion object { var current: LauncherState? = null }
     val media = MediaRepo(activity.applicationContext)
     val vehicle = Vehicle(activity.applicationContext)
     val weather = Weather()
     val status = Status(activity.applicationContext)
     val updater = Updater(activity.applicationContext)
     val nav = NavRepo(activity.applicationContext)
-    init { vehicle.onFix = { nav.onLocation(it) } }   // routing follows GPS without touching the UI tree
+    init { vehicle.onFix = { nav.onLocation(it) }; current = this }   // routing follows GPS without touching the UI tree
     /** Night dimming is on right now (auto by sunset, or forced in settings). */
     var night by mutableStateOf(false)
     var overlay by mutableStateOf<Overlay?>(null)
+    /** Current main screen; remembered across restarts. */
+    var page by mutableStateOf(runCatching { Page.valueOf(Prefs.str(activity, Prefs.PAGE, "HOME")) }.getOrDefault(Page.HOME))
+        private set
+    fun go(p: Page) { page = p; Prefs.put(activity, Prefs.PAGE, p.name); if (p != Page.TILES) tilesEdit = false }
+    fun turnPage(delta: Int) { val all = Page.entries; go(all[(all.indexOf(page) + delta + all.size) % all.size]) }
+    /** Tiles page is in edit mode (resize / move / remove / add). */
+    var tilesEdit by mutableStateOf(false)
+    /** Parking screen is shown instead of the map (standing still for a while, no route). */
+    var parked by mutableStateOf(false)
+    var parkDismissed = false
     /** Bumped when settings change so rows re-read Prefs. */
     var settingsVersion by mutableStateOf(0)
 
@@ -90,7 +110,13 @@ class MainActivity : ComponentActivity() {
                 val h = constraints.maxHeight.toFloat().coerceAtLeast(1f)
                 CompositionLocalProvider(LocalDensity provides Density(h / DesignHeight, 1f)) {
                     // Launcher never exits on Back: it only closes drawers/settings.
-                    BackHandler(enabled = true) { state.overlay = null }
+                    BackHandler(enabled = true) {
+                        when {
+                            state.overlay != null -> state.overlay = null
+                            state.tilesEdit -> state.tilesEdit = false
+                            else -> state.go(Page.HOME)
+                        }
+                    }
                     LauncherRoot(state)
                 }
             }
@@ -114,7 +140,10 @@ class MainActivity : ComponentActivity() {
         state.settingsVersion++
         if (!setupShown && state.overlay == null) {
             if (!Prefs.bool(this, Prefs.ONBOARDED, false)) { setupShown = true; state.overlay = Overlay.Welcome }
-            else if (Permissions.missing(this).isNotEmpty()) { setupShown = true; state.overlay = Overlay.Setup }
+            // «Позже» on the setup screen snoozes the reminder for a day instead of nagging on every start
+            else if (Permissions.missing(this).isNotEmpty() && System.currentTimeMillis() > (Prefs.str(this, Prefs.SETUP_SNOOZE, "0").toLongOrNull() ?: 0L)) {
+                setupShown = true; state.overlay = Overlay.Setup
+            }
         }
     }
     private var setupShown = false
@@ -131,9 +160,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // Home key while already home → close drawers/settings.
         // Home key while already home → close drawers/settings (but not the first-run wizard).
-        if (intent.hasCategory(Intent.CATEGORY_HOME) && state.overlay !is Overlay.Welcome) state.overlay = null
+        if (intent.hasCategory(Intent.CATEGORY_HOME) && state.overlay !is Overlay.Welcome) { state.overlay = null; state.go(Page.HOME) }
         handleExtras(intent)
     }
 

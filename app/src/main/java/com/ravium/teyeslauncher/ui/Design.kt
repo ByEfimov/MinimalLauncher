@@ -1,6 +1,12 @@
 package com.ravium.teyeslauncher.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -25,6 +31,9 @@ import com.ravium.teyeslauncher.R
 
 /** Mockup height. All sizes in the UI are mockup pixels (1280×800). */
 const val DesignHeight = 800f
+
+/** Screenshot tests: no enter/exit animations (Robolectric doesn't run them to the end). */
+var InstantUi = false
 
 object C {
     val Bg = Color(0xFF0C0E0F)
@@ -163,4 +172,38 @@ fun MusicTileFallback(size: Dp, color: Color) = Canvas(Modifier.size(size)) {
     drawLine(color, Offset(s * 0.62f, s * 0.14f), Offset(s * 0.62f, s * 0.70f), sw, StrokeCap.Round)
     drawLine(color, Offset(s * 0.62f, s * 0.14f), Offset(s * 0.84f, s * 0.24f), sw, StrokeCap.Round)
     drawOval(color, Offset(s * 0.30f, s * 0.60f), Size(s * 0.34f, s * 0.26f))
+}
+
+// ============================ «liquid glass» ============================
+// No real blur on Android 10 — glass is faked with a translucent white gradient, a bright top edge and a
+// colourful backdrop behind it (see GlassBackdrop).
+
+val GlassShape = RoundedCornerShape(22.dp)
+
+fun Modifier.glass(active: Boolean = false, shape: androidx.compose.ui.graphics.Shape = GlassShape): Modifier = this
+    .clip(shape)
+    .background(if (active) Brush.verticalGradient(listOf(androidx.compose.ui.graphics.lerp(C.Card, Accent.color, 0.14f), C.YellowBg)) else CardBrush)
+    // just a hint of glass: a slightly brighter top edge
+    .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.03f))), shape)
+
+/** Soft colour blobs behind glass tiles — gives the translucency something to show. */
+@Composable
+fun GlassBackdrop(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        drawRect(C.Bg)
+        drawCircle(Brush.radialGradient(listOf(Accent.color.copy(alpha = 0.11f), Color.Transparent), center = Offset(size.width * 0.12f, size.height * 0.05f),
+            radius = size.width * 0.45f), radius = size.width * 0.45f, center = Offset(size.width * 0.12f, size.height * 0.05f))
+        drawCircle(Brush.radialGradient(listOf(Color(0xFF3D6BFF).copy(alpha = 0.16f), Color.Transparent), center = Offset(size.width * 0.85f, size.height * 0.95f),
+            radius = size.width * 0.40f), radius = size.width * 0.40f, center = Offset(size.width * 0.85f, size.height * 0.95f))
+        drawCircle(Brush.radialGradient(listOf(Color(0xFFB06BFF).copy(alpha = 0.10f), Color.Transparent), center = Offset(size.width * 0.55f, size.height * 0.4f),
+            radius = size.width * 0.30f), radius = size.width * 0.30f, center = Offset(size.width * 0.55f, size.height * 0.4f))
+    }
+}
+
+/** Round icon badge like the buttons in the iOS Control Center: white-glass when off, accent when on. */
+@Composable
+fun GlassIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean, size: Dp = 48.dp, tint: Color? = null) {
+    Box(Modifier.size(size).clip(CircleShape).background(if (active) Accent.color else Color(0xFF2A2E32)), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.Icon(icon, null, tint = tint ?: if (active) Color(0xFF15171A) else Color.White, modifier = Modifier.size(size * 0.5f))
+    }
 }

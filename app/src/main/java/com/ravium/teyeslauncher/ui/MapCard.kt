@@ -358,7 +358,7 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
         onDispose { owner.lifecycle.removeObserver(obs); map.onDetach() }
     }
     // a full-screen panel (settings, apps…) covers the map → stop loading tiles until it closes
-    val covered = s.overlay != null
+    val covered = s.overlay != null || s.page != Page.HOME || s.parked
     LaunchedEffect(covered) {
         if (covered) map.onPause() else if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) map.onResume()
     }
@@ -455,7 +455,7 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
         onDispose { owner.lifecycle.removeObserver(obs); mv.onStop() }
     }
     // a full-screen panel covers the map → stop rendering it (saves CPU/GPU while in settings or the app list)
-    val covered = s.overlay != null
+    val covered = s.overlay != null || s.page != Page.HOME || s.parked
     var paused by remember { mutableStateOf(false) }
     LaunchedEffect(covered) {
         if (covered && !paused) { mv.onStop(); paused = true }

@@ -36,6 +36,24 @@ object Prefs {
     const val ONBOARDED = "onboarded"
     const val BT_OPEN_APP = "bt_open_app"         // open TEYES BT screen when switching to Bluetooth
     const val MAIN_PLAYER = "main_player"         // package of the main music tab (Яндекс Музыка by default)
+    const val VOICE_LEVEL = "voice_level"         // all | important | off
+    const val VOICE_NAME = "voice_name"           // TTS voice name, null = system default
+    const val VOICE_RATE = "voice_rate"           // 0.8 | 1.0 | 1.25
+    const val WHEEL = "wheel_"                    // wheel_next_long, wheel_next_double, wheel_prev_long, wheel_prev_double → action id
+    const val DOCK_ITEMS = "dock_items"           // bottom bar: home,nav,music,phone,apps,app=pkg…
+    const val TILES_V2 = "tiles_v2"               // tiles page (8-column grid): type:WxH[:arg],…
+    const val REMINDERS = "reminders"             // JSON array
+    const val ODO_GPS_M = "odo_gps_m"             // metres driven by GPS since install
+    const val ODO_BASE = "odo_base_km"            // odometer the user entered…
+    const val ODO_BASE_GPS = "odo_base_gps_m"     // …and GPS metres at that moment
+    const val PARKING = "parking"                 // parking screen when standing still
+    const val PARKING_DELAY = "parking_delay"     // minutes
+    const val SETUP_SNOOZE = "setup_snooze"       // don't show the setup screen on start until this time (ms)
+    const val HOME_BLOCKS = "home_blocks"         // side column of the main screen: music,service,tile=weather…
+    const val HOME_SIDE = "home_side"             // left | right
+    const val HOME_BIG = "home_big"               // map | clock
+    const val HOME_WIDE = "home_wide"
+    const val PAGE = "page"                       // last main page
     const val AUTO_CLEAN = "auto_clean"           // free memory on ignition and every 30 min
     const val LITE_MAP = "lite_map"               // lighter map: no 3D, no traffic, fewer camera moves
 

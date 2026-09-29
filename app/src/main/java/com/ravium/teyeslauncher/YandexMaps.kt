@@ -31,6 +31,7 @@ class MinimalDriveApp : Application() {
         CrashLog.install(this)
         com.ravium.teyeslauncher.ui.Accent.load(this)
         YandexMaps.init(this)
+        Voice.init(this)
     }
 }
 
