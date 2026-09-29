@@ -1,0 +1,13 @@
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+.idea_broken/
+*.iml
+.DS_Store
+captures/
+_old/
+*.apk
+# ключ подписи хранится только у вас и в секрете GitHub (SIGNING_KEYSTORE_B64)
+keystore/*.jks

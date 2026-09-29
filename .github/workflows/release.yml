@@ -1,0 +1,48 @@
+# Сборка и публикация релиза: git tag v1.2.3 && git push origin v1.2.3 (или ./release.sh 1.2.3)
+# Магнитолы с Minimal Drive сами найдут новую версию (Настройки → Обновления, проверка раз в сутки).
+name: Release APK
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Signing key (secret SIGNING_KEYSTORE_B64)
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Добавьте секрет SIGNING_KEYSTORE_B64 (см. README → Релизы)"; exit 1
+          fi
+          mkdir -p keystore
+          echo "$KEYSTORE_B64" | base64 -d > keystore/minimal-drive.jks
+
+      - name: Version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease -PappVersion="$VERSION" --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "MinimalDrive-$VERSION.apk"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Minimal Drive ${{ env.VERSION }}
+          files: MinimalDrive-${{ env.VERSION }}.apk
+          generate_release_notes: true
