@@ -131,7 +131,8 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Home key while already home → close drawers/settings.
-        if (intent.hasCategory(Intent.CATEGORY_HOME)) state.overlay = null
+        // Home key while already home → close drawers/settings (but not the first-run wizard).
+        if (intent.hasCategory(Intent.CATEGORY_HOME) && state.overlay !is Overlay.Welcome) state.overlay = null
         handleExtras(intent)
     }
 

@@ -656,7 +656,9 @@ private fun FavoritesScreen(s: LauncherState) {
 @Composable
 private fun WelcomeScreen(s: LauncherState) {
     val ctx = LocalContext.current
-    var step by remember { mutableIntStateOf(0) }
+    // Step survives leaving to Android settings (the launcher may be recreated meanwhile) — kept in prefs.
+    var step by remember { mutableIntStateOf(Prefs.str(ctx, "welcome_step", "0").toIntOrNull() ?: 0) }
+    LaunchedEffect(step) { Prefs.put(ctx, "welcome_step", step.toString()) }
     var name by remember { mutableStateOf(Prefs.str(ctx, Prefs.USER_NAME, "")) }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
