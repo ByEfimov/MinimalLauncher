@@ -138,7 +138,6 @@ class MainActivity : ComponentActivity() {
         state.media.start()
         state.vehicle.start()
         state.updater.checkDaily()
-        if (!License.activated) License.checkOnline()   // owner may have approved this unit meanwhile
     }
 
     override fun onResume() {
