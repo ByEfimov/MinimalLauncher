@@ -82,6 +82,7 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.Search -> SearchScreen(s, o.setHome)
                 is Overlay.ApiKey -> ApiKeyScreen(s)
                 is Overlay.WeatherKey -> WeatherKeyScreen(s)
+                is Overlay.ProxyKey -> ProxyKeyScreen(s)
                 is Overlay.Welcome -> WelcomeScreen(s)
                 is Overlay.Favorites -> FavoritesScreen(s)
                 is Overlay.Weather -> WeatherScreen(s)
@@ -672,6 +673,41 @@ private fun WeatherKeyScreen(s: LauncherState) {
             }, contentAlignment = Alignment.Center) {
             Text("Сохранить", style = t(18f, C.Text, FontWeight.Medium))
         }
+    }
+}
+
+@Composable
+private fun ProxyKeyScreen(s: LauncherState) {
+    val ctx = LocalContext.current
+    var url by remember { mutableStateOf(Prefs.str(ctx, Prefs.PROXY_URL) ?: "") }
+    val clip = ctx.getSystemService(ClipboardManager::class.java)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        OverlayHeader("Прокси (Yandex Cloud)") { s.overlay = Overlay.SettingsCat("map") }
+        Text("Адрес вашей функции на Yandex Cloud (*.yandexcloud.net — белый список РФ). " +
+            "Через него погода и ограничения скорости работают даже при ограничениях интернета. " +
+            "Как создать — см. tools/proxy/README.md в проекте.\n\nВставьте адрес вида https://functions.yandexcloud.net/xxxxx",
+            style = t(16f, C.Text2), modifier = Modifier.padding(start = 6.dp, top = 4.dp, bottom = 16.dp))
+        androidx.compose.material3.TextField(
+            value = url, onValueChange = { url = it.trim() },
+            modifier = Modifier.fillMaxWidth().height(72.dp).clip(CardShape).border(Hairline, C.Stroke, CardShape),
+            placeholder = { Text("https://functions.yandexcloud.net/...", style = t(18f, C.Muted)) },
+            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 18.sp, color = C.Text),
+            singleLine = true,
+            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
+                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pill("Вставить из буфера") { clip.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim()?.let { url = it } }
+            Pill("Удалить") { url = "" }
+        }
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(64.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
+            .clickable {
+                Prefs.put(ctx, Prefs.PROXY_URL, url.ifEmpty { null }); Wx.proxy = url.ifEmpty { null }
+                s.settingsVersion++; Apps.toast(ctx, "Сохранено"); s.overlay = Overlay.SettingsCat("map")
+            }, contentAlignment = Alignment.Center) { Text("Сохранить", style = t(18f, C.Text, FontWeight.Medium)) }
     }
 }
 

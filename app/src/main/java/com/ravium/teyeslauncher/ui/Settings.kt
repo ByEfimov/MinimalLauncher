@@ -222,6 +222,9 @@ fun SettingsCategory(s: LauncherState, id: String) {
                     info = "Яндекс Погода на белом списке РФ — работает даже при ограничениях интернета. Нужен бесплатный ключ (yandex.ru/dev/weather). " +
                         "Без ключа погода берётся из wttr.in / met.no / Open-Meteo — они могут не работать при ограничениях.",
                     onClick = { s.overlay = Overlay.WeatherKey }) { Chevron() }
+                RowCard("Прокси (Yandex Cloud)", if (Prefs.str(ctx, Prefs.PROXY_URL).isNullOrBlank()) "Не задан — для погоды и ограничений при блокировках" else "Задан · белый список РФ",
+                    info = "Свой сервис на Yandex Cloud (*.yandexcloud.net — белый список РФ). Через него и погода, и ограничения скорости работают при ограничениях интернета. Настройка — tools/proxy/README.md.",
+                    onClick = { s.overlay = Overlay.ProxyKey }) { Chevron() }
                 RowCard("Избранные места", "${s.nav.favorites.size} мест", info = "Работа, дача, спортзал… Добавляются звёздочкой в поиске. Маршрут — одно нажатие.",
                     onClick = { s.overlay = Overlay.Favorites }) { Chevron() }
             }

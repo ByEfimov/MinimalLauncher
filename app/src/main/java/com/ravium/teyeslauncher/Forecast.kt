@@ -34,6 +34,9 @@ object Wx {
 
     /** Ключ Яндекс Погоды (белый список РФ). Задаётся в настройках; если пуст — используются запасные источники. */
     @Volatile var yandexWeatherKey: String? = null
+    /** URL прокси на Yandex Cloud (*.yandexcloud.net, белый список РФ). Если задан — основной источник и погоды, и ограничений. */
+    @Volatile var proxy: String? = null
+    fun proxyUrl(): String? = proxy?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
 
     fun getYandex(url: String): String? = runCatching {
         val key = yandexWeatherKey?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -98,6 +101,12 @@ object Wx {
     /** Current temp + normalised code. Tries wttr.in, then Open-Meteo. */
     fun current(lat: Double, lon: Double): Pair<Int, Int>? {
         runCatching {
+            val p = proxyUrl() ?: return@runCatching null
+            val body = get("$p?action=weather&lat=%.4f&lon=%.4f".format(Locale.US, lat, lon)) ?: return@runCatching null
+            val cur = JSONObject(body).getJSONObject("current")
+            return cur.getDouble("temperature_2m").roundToInt() to cur.getInt("weather_code")
+        }
+        runCatching {
             val body = getYandex("https://api.weather.yandex.ru/v2/forecast?lat=%.4f&lon=%.4f&limit=1&hours=false".format(Locale.US, lat, lon)) ?: return@runCatching null
             val f = JSONObject(body).getJSONObject("fact")
             return f.getInt("temp") to cond(f.getString("condition"))
@@ -129,7 +138,7 @@ object ForecastRepo {
     suspend fun load(lat: Double, lon: Double): Forecast? = withContext(Dispatchers.IO) {
         val key = "%.2f,%.2f".format(Locale.US, lat, lon)
         cache?.let { (k, v) -> if (k == key && System.currentTimeMillis() - v.first < 15 * 60_000) return@withContext v.second }
-        val fc = fromYandex(lat, lon) ?: fromWttr(lat, lon) ?: fromMetNo(lat, lon) ?: fromOpenMeteo(lat, lon)
+        val fc = fromProxy(lat, lon) ?: fromYandex(lat, lon) ?: fromWttr(lat, lon) ?: fromMetNo(lat, lon) ?: fromOpenMeteo(lat, lon)
         if (fc != null) cache = key to (System.currentTimeMillis() to fc)
         fc
     }
@@ -266,12 +275,7 @@ object ForecastRepo {
         Forecast(pts.first().temp, pts.first().temp, pts.first().code, windMs, hum, hours, days, warningsFor(hours, windMs))
     }.getOrNull()
 
-    private fun fromOpenMeteo(lat: Double, lon: Double): Forecast? = runCatching {
-        val body = Wx.get("https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f".format(Locale.US, lat, lon) +
-            "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m" +
-            "&hourly=temperature_2m,weather_code,precipitation_probability&forecast_hours=24" +
-            "&daily=temperature_2m_min,temperature_2m_max,weather_code,precipitation_sum&forecast_days=6&wind_speed_unit=ms&timezone=auto") ?: return null
-        val j = JSONObject(body)
+    private fun parseOpenMeteo(j: JSONObject): Forecast {
         val cur = j.getJSONObject("current")
         val h = j.getJSONObject("hourly")
         val ht = h.getJSONArray("time"); val htemp = h.getJSONArray("temperature_2m"); val hcode = h.getJSONArray("weather_code")
@@ -290,8 +294,23 @@ object ForecastRepo {
                 d.getJSONArray("weather_code").getInt(i), d.getJSONArray("precipitation_sum").optDouble(i, 0.0))
         }
         val windMs = cur.optDouble("wind_speed_10m", 0.0).roundToInt()
-        Forecast(cur.getDouble("temperature_2m").roundToInt(), cur.getDouble("apparent_temperature").roundToInt(), cur.getInt("weather_code"),
+        return Forecast(cur.getDouble("temperature_2m").roundToInt(), cur.getDouble("apparent_temperature").roundToInt(), cur.getInt("weather_code"),
             windMs, cur.optInt("relative_humidity_2m"), hours, days, warningsFor(hours, windMs))
+    }
+
+    /** Через прокси на Yandex Cloud: функция сама забирает погоду (open-meteo) и отдаёт её JSON. */
+    private fun fromProxy(lat: Double, lon: Double): Forecast? = runCatching {
+        val p = Wx.proxyUrl() ?: return null
+        val body = Wx.get("$p?action=weather&lat=%.4f&lon=%.4f".format(Locale.US, lat, lon)) ?: return null
+        parseOpenMeteo(JSONObject(body))
+    }.getOrNull()
+
+    private fun fromOpenMeteo(lat: Double, lon: Double): Forecast? = runCatching {
+        val body = Wx.get("https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f".format(Locale.US, lat, lon) +
+            "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m" +
+            "&hourly=temperature_2m,weather_code,precipitation_probability&forecast_hours=24" +
+            "&daily=temperature_2m_min,temperature_2m_max,weather_code,precipitation_sum&forecast_days=6&wind_speed_unit=ms&timezone=auto") ?: return null
+        parseOpenMeteo(JSONObject(body))
     }.getOrNull()
 
     fun describe(code: Int): String = when (code) {

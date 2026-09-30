@@ -56,14 +56,15 @@ class SpeedLimit {
     private var lastFetchAt = 0L
     private var lastMatchAt = 0L
     private var endpoint = 0
-    // Порядок важен для России: сначала российские/ближние зеркала, потом мировые.
-    private val endpoints = listOf(
+    // Прокси на Yandex Cloud (белый список РФ) первым, если задан; затем российские/мировые зеркала.
+    private val baseEndpoints = listOf(
         "https://overpass.openstreetmap.ru/cgi/interpreter",
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
         "https://overpass-api.de/api/interpreter",
         "https://overpass.private.coffee/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
     )
+    private val endpoints get() = (Wx.proxyUrl()?.let { listOf("$it?action=overpass") } ?: emptyList()) + baseEndpoints
     var lastError: String? = null
         private set
     /** Area around the car looks like a town (many residential streets) — affects default limits. */

@@ -32,6 +32,7 @@ sealed interface Overlay {
     data class Search(val setHome: Boolean = false) : Overlay
     data object ApiKey : Overlay
     data object WeatherKey : Overlay
+    data object ProxyKey : Overlay
     data object Welcome : Overlay
     data object Favorites : Overlay
     data object Weather : Overlay

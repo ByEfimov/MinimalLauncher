@@ -31,6 +31,7 @@ object Prefs {
     const val MAP_TRAFFIC = "map_traffic"         // Яндекс пробки
     const val YANDEX_KEY = "yandex_mapkit_key"    // entered in the app
     const val YANDEX_WEATHER_KEY = "yandex_weather_key"  // Яндекс Погода (белый список РФ)
+    const val PROXY_URL = "proxy_url"             // Yandex Cloud функция: погода + ограничения (белый список)
     const val USER_NAME = "user_name"             // greeting in the header
     const val ACCENT = "accent"                   // ARGB hex
     const val FAVORITES_PLACES = "favorite_places"
