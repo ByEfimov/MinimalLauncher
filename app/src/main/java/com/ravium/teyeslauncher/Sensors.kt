@@ -124,8 +124,9 @@ class Vehicle(private val ctx: Context) {
             }
         }
         if (speedKmh > 5) lastMovingAt = now
-        if (l.hasBearing() && (mps ?: 0f) > 1.5f) bearing = l.bearing
-        else if (p != null && l.distanceTo(p) > 8) bearing = p.bearingTo(l).let { if (it < 0) it + 360 else it }
+        // direction only while really moving — standing still, GPS noise would spin the map around
+        if (l.hasBearing() && (mps ?: 0f) > 2.5f) bearing = l.bearing
+        else if (p != null && speedKmh >= 8 && l.distanceTo(p) > 8) bearing = p.bearingTo(l).let { if (it < 0) it + 360 else it }
 
         prev = l
         location = l

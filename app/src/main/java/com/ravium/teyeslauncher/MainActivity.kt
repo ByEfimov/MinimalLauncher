@@ -94,7 +94,7 @@ class LauncherState(val activity: MainActivity) {
     }
 
     /** Full-screen navigator (map card button, navigator hint). */
-    fun openNavigator() = launchAssigned(Prefs.NAV, Known.NAV, "Выберите навигатор")
+    fun openNavigator() = nav.openInNavigator(vehicle.location) { launchAssigned(Prefs.NAV, Known.NAV, "Выберите навигатор") }
 }
 
 class MainActivity : ComponentActivity() {

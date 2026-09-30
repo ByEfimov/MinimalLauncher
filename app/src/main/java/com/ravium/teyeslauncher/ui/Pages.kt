@@ -417,7 +417,7 @@ object Dock {
         when {
             id.startsWith("app=") -> { s.overlay = null; Apps.launch(ctx, id.removePrefix("app=")) }
             id == "home" -> { s.overlay = null; s.go(Page.HOME) }
-            id == "nav" -> s.launchAssigned(Prefs.NAV, Known.NAV, "Выберите навигатор")
+            id == "nav" -> s.openNavigator()
             id == "music" -> s.media.openSourceApp()
             id == "phone" -> s.launchAssigned(Prefs.PHONE, Known.PHONE, "Выберите приложение телефона")
             id == "apps" -> s.overlay = Overlay.Drawer

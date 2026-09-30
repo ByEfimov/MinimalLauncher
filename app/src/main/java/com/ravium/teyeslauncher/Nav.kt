@@ -246,13 +246,29 @@ class NavRepo(private val ctx: Context) {
 
     fun saveHome(p: Place) { home = p; Prefs.put(ctx, "home_place", p.toJson()) }
 
+    /**
+     * Build a route from where the car IS. A stale or rough position (last known fix from before parking,
+     * network location) would start the route somewhere else — then we wait a few seconds for a fresh GPS fix.
+     */
     fun routeTo(dest: Place, from: Location?) {
-        if (from == null) { message = "Нет GPS — маршрут построится, когда появится позиция"; pending = dest; return }
+        if (from == null || !fresh(from)) {
+            message = if (from == null) "Нет GPS — маршрут построится, когда появится позиция" else "Уточняю позицию по GPS…"
+            pending = dest; pendingSince = SystemClock.elapsedRealtime(); return
+        }
+        pending = null
         busy = true
-        provider.route(from, dest, { r -> busy = false; setRoute(r, from); message = null; pending = null }, { e -> busy = false; message = e })
+        provider.route(from, dest, { r -> busy = false; setRoute(r, from); message = null }, { e -> busy = false; message = e })
     }
 
     private var pending: Place? = null
+    private var pendingSince = 0L
+
+    /** Fix is recent and precise enough to start a route from. After 20 s of waiting any recent fix will do. */
+    private fun fresh(l: Location): Boolean {
+        val ageMs = (SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1_000_000
+        val waitedLong = pending != null && SystemClock.elapsedRealtime() - pendingSince > 20_000
+        return ageMs < 15_000 && (!l.hasAccuracy() || l.accuracy <= 60f || (waitedLong && l.accuracy <= 300f))
+    }
 
     fun clear() { route = null; progress = null; pending = null; message = null; onRoute?.invoke(null) }
 
@@ -294,7 +310,7 @@ class NavRepo(private val ctx: Context) {
 
     /** Every GPS fix: build a pending route, reroute when off the line, finish on arrival. */
     fun onLocation(l: Location) {
-        pending?.let { if (!busy) routeTo(it, l) }
+        pending?.let { if (!busy && fresh(l)) routeTo(it, l) }
         val r = route ?: return
         val dest = FloatArray(1)
         Location.distanceBetween(l.latitude, l.longitude, r.destination.lat, r.destination.lon, dest)
@@ -327,17 +343,26 @@ class NavRepo(private val ctx: Context) {
     }
 
     /** Hand the current destination to Яндекс Навигатор (or just open the chosen navigator). */
-    fun openInNavigator(fallback: () -> Unit) {
-        val d = route?.destination
-        val navi = Apps.resolve(ctx, Prefs.NAV, Known.NAV)
-        if (d != null && navi == "ru.yandex.yandexnavi") {
-            val i = Intent(Intent.ACTION_VIEW, Uri.parse("yandexnavi://build_route_on_map?lat_to=${d.lat}&lon_to=${d.lon}"))
-                .setPackage("ru.yandex.yandexnavi").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (runCatching { ctx.startActivity(i) }.isSuccess) return
-        }
-        if (d != null && navi == "ru.yandex.yandexmaps") {
-            val i = Intent(Intent.ACTION_VIEW, Uri.parse("yandexmaps://maps.yandex.ru/?rtext=~${d.lat},${d.lon}&rtt=auto"))
-                .setPackage("ru.yandex.yandexmaps").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    /**
+     * «Развернуть»: open the chosen navigator WITH the current destination, so the trip continues there
+     * (Яндекс Навигатор / Карты, 2ГИС, Google Maps, Waze; any other app gets a geo: link). No route → just open it.
+     */
+    fun openInNavigator(from: Location?, fallback: () -> Unit) {
+        val d = route?.destination ?: return fallback()
+        val navi = Apps.resolve(ctx, Prefs.NAV, Known.NAV) ?: return fallback()
+        val lat = "%.6f".format(java.util.Locale.US, d.lat); val lon = "%.6f".format(java.util.Locale.US, d.lon)
+        val fromQ = from?.let { "&lat_from=%.6f&lon_from=%.6f".format(java.util.Locale.US, it.latitude, it.longitude) } ?: ""
+        val fromR = from?.let { "%.6f,%.6f".format(java.util.Locale.US, it.latitude, it.longitude) } ?: ""
+        val uris = when (navi) {
+            "ru.yandex.yandexnavi" -> listOf("yandexnavi://build_route_on_map?lat_to=$lat&lon_to=$lon$fromQ")
+            "ru.yandex.yandexmaps" -> listOf("yandexmaps://maps.yandex.ru/?rtext=$fromR~$lat,$lon&rtt=auto")
+            "ru.dublgis.dgismobile" -> listOf("dgis://2gis.ru/routeSearch/rsType/car/to/$lon,$lat")
+            "com.google.android.apps.maps" -> listOf("google.navigation:q=$lat,$lon&mode=d")
+            "com.waze" -> listOf("waze://?ll=$lat,$lon&navigate=yes")
+            else -> emptyList()
+        } + "geo:$lat,$lon?q=$lat,$lon(${Uri.encode(d.name)})"
+        for (u in uris) {
+            val i = Intent(Intent.ACTION_VIEW, Uri.parse(u)).setPackage(navi).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (runCatching { ctx.startActivity(i) }.isSuccess) return
         }
         fallback()
