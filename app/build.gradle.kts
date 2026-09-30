@@ -23,6 +23,7 @@ android {
         // TEYES CC3 is ARM; skip x86 MapKit libraries to keep the APK small
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "UPDATE_REPO", "\"${(project.findProperty("updateRepo") as String?) ?: ""}\"")
+        buildConfigField("String", "ACTIVATION_URL", "\"${(project.findProperty("activationUrl") as String?) ?: ""}\"")
     }
     signingConfigs {
         // One shared key for all builds (your Mac and mine) so updates install over each other.

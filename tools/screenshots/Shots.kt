@@ -17,6 +17,8 @@ import org.robolectric.shadows.ShadowLooper
 object Seed {
     fun apply(ctx: android.content.Context) {
         Prefs.put(ctx, Prefs.ONBOARDED, true)
+        Prefs.put(ctx, Prefs.LICENSE, "JzdiCEeQnMpMpBlh9BhhkoJcjaks85Xg+TU83vg6QM4Lg5s3pniOLzsWN+Xv6qdvtR5BGE9LXHkk4lIb3dG9P05MYvFB9WtN2YGT2ofrUa8yO63JS/RwM3uZb3DFR3bA3gKrwaetUjNQsZr3pkFBqhDYk1aL5IZ3fdG3dX5ADEirIuH2Ow21cr5qzxMY1z51GtC4nMyPygrhTYT4Qvjxiii5o7lkGqoU/xD+NMo519XCC1BZmDlewhY5K6YNbvmjwHkZmXBdwhElEWbxnLvaRnZ310+o93XlCK2QFOxkoLCINfGTsy9ED9bzHFvKIsuSVkfZCLXZ7PfhfWtg4wiUww==")
+        License.init(ctx)
         Prefs.put(ctx, Prefs.SETUP_SNOOZE, Long.MAX_VALUE.toString())
         Prefs.put(ctx, Prefs.USER_NAME, "Никита")
         Prefs.put(ctx, "home_place", Place("Дом", "ул. Ленина, 1", 55.75, 37.62).toJson())
@@ -67,3 +69,5 @@ class SArrow : Shot("Arrow", { a ->
     java.io.File((System.getProperty("shots.dir") ?: "build/shots") + "/ArrowBig.png").outputStream().use { out.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
 })
 class SOffline : Shot("Offline", { it.state.overlay = Overlay.Offline })
+
+class SLock : Shot("Lock", { Prefs.put(it, Prefs.LICENSE, null); License.init(it); it.state.overlay = null })

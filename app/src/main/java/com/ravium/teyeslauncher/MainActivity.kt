@@ -123,7 +123,8 @@ class MainActivity : ComponentActivity() {
                             else -> state.go(Page.HOME)
                         }
                     }
-                    LauncherRoot(state)
+                    if (License.activated) LauncherRoot(state)
+                    else com.ravium.teyeslauncher.ui.LockScreen(state)
                 }
             }
         }
@@ -137,6 +138,7 @@ class MainActivity : ComponentActivity() {
         state.media.start()
         state.vehicle.start()
         state.updater.checkDaily()
+        if (!License.activated) License.checkOnline()   // owner may have approved this unit meanwhile
     }
 
     override fun onResume() {

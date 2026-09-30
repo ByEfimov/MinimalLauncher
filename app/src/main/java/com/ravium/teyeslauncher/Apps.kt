@@ -53,6 +53,7 @@ object Prefs {
     const val HOME_SIDE = "home_side"             // left | right
     const val HOME_BIG = "home_big"               // map | clock
     const val HOME_WIDE = "home_wide"
+    const val LICENSE = "license_code"            // activation signature; empty = locked
     const val PAGE = "page"                       // last main page
     const val AUTO_CLEAN = "auto_clean"           // free memory on ignition and every 30 min
     const val LITE_MAP = "lite_map"               // lighter map: no 3D, no traffic, fewer camera moves

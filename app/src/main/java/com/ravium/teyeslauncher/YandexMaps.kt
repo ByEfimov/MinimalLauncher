@@ -29,6 +29,7 @@ class MinimalDriveApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        License.init(this)
         com.ravium.teyeslauncher.ui.Accent.load(this)
         YandexMaps.init(this)
         OfflineMaps.start()

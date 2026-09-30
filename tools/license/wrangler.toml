@@ -1,0 +1,9 @@
+name = "minimal-drive-license"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# KV с одобренными магнитолами. id подставит скрипт setup.sh (или создайте вручную:
+#   npx wrangler kv namespace create DEVICES)
+[[kv_namespaces]]
+binding = "DEVICES"
+id = "REPLACE_WITH_KV_ID"

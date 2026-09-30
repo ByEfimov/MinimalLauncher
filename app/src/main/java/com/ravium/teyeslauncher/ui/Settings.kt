@@ -144,6 +144,14 @@ fun SettingsCategory(s: LauncherState, id: String) {
                     onClick = { s.overlay = Overlay.Diagnostics }) { Chevron() }
                 RowCard("Системные настройки Android", info = "Обычные настройки Android: Wi-Fi, Bluetooth, дата и время, приложения.",
                     onClick = { Apps.openFirst(ctx, Intent(Settings.ACTION_SETTINGS)) }) { Chevron() }
+                var confirmDel by remember { mutableStateOf(false) }
+                RowCard(if (confirmDel) "Точно удалить? Нажмите ещё раз" else "Удалить лаунчер",
+                    "Вернуть штатный лаунчер и удалить Minimal Drive",
+                    info = "Отключит режим киоска и автозапуск, откроет выбор домашнего приложения, чтобы вернуть штатный лаунчер, и запустит удаление Minimal Drive. " +
+                        "Android попросит подтвердить удаление. Ваши настройки лаунчера при этом стираются вместе с приложением; сама магнитола не трогается.",
+                    onClick = { if (confirmDel) Kiosk.uninstallAndRevert(ctx) else confirmDel = true }) {
+                    Text(if (confirmDel) "Удалить" else "", style = t(15f, C.GuideRed, FontWeight.Medium)); Chevron()
+                }
             }
         }
         "look" -> {

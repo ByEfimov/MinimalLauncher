@@ -58,6 +58,26 @@ object Kiosk {
     fun startGuard(ctx: Context) {
         runCatching { ctx.startForegroundService(Intent(ctx, LauncherGuard::class.java)) }
     }
+
+    /**
+     * Remove the launcher and return the head unit to its stock behaviour:
+     *  1. stop kiosk + the guard service and turn off autostart, so nothing pulls Minimal Drive back;
+     *  2. open the Home-app chooser so the user can pick the stock launcher as default;
+     *  3. start the system uninstall dialog for Minimal Drive.
+     * (Android does not let an app silently uninstall itself — the user confirms the last step.)
+     */
+    fun uninstallAndRevert(ctx: Context) {
+        Prefs.put(ctx, Prefs.KIOSK, false)
+        Prefs.put(ctx, Prefs.AUTO_NAV, false)
+        Prefs.put(ctx, Prefs.AUTO_PLAY, false)
+        runCatching { ctx.stopService(Intent(ctx, LauncherGuard::class.java)) }
+        // let the user set the stock launcher as home first
+        runCatching { openHomeSettings(ctx) }
+        // then ask to uninstall
+        val i = Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:${ctx.packageName}"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { ctx.startActivity(i) }
+    }
 }
 
 /** What runs when the head unit wakes up (ACC on) or boots. */

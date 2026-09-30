@@ -11,3 +11,7 @@ _old/
 *.apk
 # ключ подписи хранится только у вас и в секрете GitHub (SIGNING_KEYSTORE_B64)
 keystore/*.jks
+# license keys — приватный ключ никогда не коммитим
+*.pem
+*-secret/
+MinimalLauncher-secret/
