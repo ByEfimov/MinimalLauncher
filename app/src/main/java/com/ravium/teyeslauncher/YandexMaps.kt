@@ -35,7 +35,8 @@ class MinimalDriveApp : Application() {
         OfflineMaps.start()
         Voice.init(this)
         Wx.yandexWeatherKey = Prefs.str(this, Prefs.YANDEX_WEATHER_KEY)
-        Wx.proxy = Prefs.str(this, Prefs.PROXY_URL)
+        // Прокси: сохранённый в настройках имеет приоритет, иначе — вшитый по умолчанию (Yandex Cloud).
+        Wx.proxy = Prefs.str(this, Prefs.PROXY_URL, "").ifBlank { BuildConfig.PROXY_URL }
     }
 }
 

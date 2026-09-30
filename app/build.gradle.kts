@@ -24,6 +24,8 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "UPDATE_REPO", "\"${(project.findProperty("updateRepo") as String?) ?: ""}\"")
         buildConfigField("String", "ACTIVATION_URL", "\"${(project.findProperty("activationUrl") as String?) ?: ""}\"")
+        // Прокси на Yandex Cloud (белый список РФ): погода + ограничения скорости. Пусто → без прокси.
+        buildConfigField("String", "PROXY_URL", "\"${(project.findProperty("proxyUrl") as String?) ?: ""}\"")
     }
     signingConfigs {
         // One shared key for all builds (your Mac and mine) so updates install over each other.
