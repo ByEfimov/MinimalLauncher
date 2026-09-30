@@ -17,7 +17,7 @@ import org.robolectric.shadows.ShadowLooper
 object Seed {
     fun apply(ctx: android.content.Context) {
         Prefs.put(ctx, Prefs.ONBOARDED, true)
-        Prefs.put(ctx, Prefs.LICENSE, "JzdiCEeQnMpMpBlh9BhhkoJcjaks85Xg+TU83vg6QM4Lg5s3pniOLzsWN+Xv6qdvtR5BGE9LXHkk4lIb3dG9P05MYvFB9WtN2YGT2ofrUa8yO63JS/RwM3uZb3DFR3bA3gKrwaetUjNQsZr3pkFBqhDYk1aL5IZ3fdG3dX5ADEirIuH2Ow21cr5qzxMY1z51GtC4nMyPygrhTYT4Qvjxiii5o7lkGqoU/xD+NMo519XCC1BZmDlewhY5K6YNbvmjwHkZmXBdwhElEWbxnLvaRnZ310+o93XlCK2QFOxkoLCINfGTsy9ED9bzHFvKIsuSVkfZCLXZ7PfhfWtg4wiUww==")
+        Prefs.put(ctx, Prefs.LICENSE, License.codeFor(License.deviceId(ctx)))  // always valid for this JVM
         License.init(ctx)
         Prefs.put(ctx, Prefs.SETUP_SNOOZE, Long.MAX_VALUE.toString())
         Prefs.put(ctx, Prefs.USER_NAME, "Никита")

@@ -3,33 +3,36 @@ package com.ravium.teyeslauncher
 import android.annotation.SuppressLint
 import android.content.Context
 import android.provider.Settings
+import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import java.security.KeyFactory
 import java.security.MessageDigest
-import java.security.Signature
-import java.security.spec.X509EncodedKeySpec
-import android.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
- * Activation lock. A copied APK is useless without an activation code that only the owner can issue.
+ * Activation lock. A copied APK is useless without a 6-digit activation code that only the owner can issue.
  *
- * How it stays safe:
- *  • each head unit has a device code (from its Android ID);
- *  • an activation code is an RSA signature of that device code, made with a PRIVATE key the owner keeps
- *    (on a page / on the Mac) and NEVER ships in the app;
- *  • the app only carries the PUBLIC key and checks the signature offline — it cannot mint codes itself,
- *    and a code from one head unit does not fit another.
- * After activation everything works with no internet; the network is used only to fetch the code the first time.
+ *  • each head unit shows a 6-digit DEVICE code (from its Android ID);
+ *  • the ACTIVATION code is a short HMAC of that device code, made with a secret only the owner has
+ *    (Mac script / activation page);
+ *  • the app checks it offline — no internet after activation, and a code from one head unit does not fit another.
+ *
+ * Trade-off vs. the previous RSA scheme: a 6-digit code needs a shared secret, so the secret lives in the app
+ * (lightly obfuscated). A determined attacker who unpacks the APK could extract it — good enough to stop casual
+ * copying, weaker than a server-only key. The activation service (tools/license) also holds the same secret.
  */
 object License {
-    // Public key only (RSA-2048, X.509 DER, base64). The matching private key is the owner's secret.
-    private const val PUBLIC_KEY_B64 =
-        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtW3S8KUT1a6yanncplDK5OeH+E9ZBtOZhdIz9nVpuRWSmn6RW71tp1uwSGh6UHwBuCeppdhDZBNoD9SpWtdRQGYK0JHXDZv6C4gHQxh7ud6tW8WEWupwMnYIxuy20W/eQwuoUjkfH5EhYbv3naHUvdeL4bV/ypVYhXbtnRODCvZ79TzxtQ9bnzTC/sAXC0nt+P1KcMOK6sg2l9pz/Z/EYRWfjg2YoIc9HdZ0YEMWIap7fQnqzAsCEaJBjk5i1fz+FaMgVv5J1IglLgJjdBYQ+xDyf2h00fe7OrQU1ngNFB4LfCrvDi0tU15ycpesFrgR/NazFsNkGttgj0/1vg661QIDAQAB"
+    // Shared secret, XOR-obfuscated so it isn't a plain string in the APK. Owner keeps the raw secret out of the repo.
+    private const val OBF_B64 = "VOBG/0HVZT3p02dIxKhhW69Z103AH1hNMQi13yHKwP8="
+    private val PAD = byteArrayOf(0x9e.toByte(), 0x3c, 0x7f, 0xa1.toByte(), 0x5b, 0x2d, 0x84.toByte(), 0xc6.toByte())
+    private val secret: ByteArray by lazy {
+        Base64.decode(OBF_B64, Base64.DEFAULT).mapIndexed { i, b -> (b.toInt() xor PAD[i % PAD.size].toInt()).toByte() }.toByteArray()
+    }
 
     var activated by mutableStateOf(false)
         private set
@@ -40,45 +43,50 @@ object License {
 
     fun init(ctx: Context) {
         app = ctx.applicationContext
-        activated = verify(deviceId(app), Prefs.str(app, Prefs.LICENSE))
+        activated = check(deviceId(app), Prefs.str(app, Prefs.LICENSE))
     }
 
-    /** Stable per–head-unit code, e.g. "7F3A-91C0-5E22". Shown to the owner to approve. */
+    /** 6-digit code of this head unit, e.g. "373039". */
     @SuppressLint("HardwareIds")
     fun deviceId(ctx: Context): String {
         val raw = (Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID) ?: "") + "|" + ctx.packageName
         val h = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray())
-        return h.take(6).joinToString("") { "%02X".format(it) }
+        val n = (0 until 8).fold(0L) { acc, i -> (acc shl 8) or (h[i].toLong() and 0xff) }
+        return "%06d".format((n % 1_000_000 + 1_000_000) % 1_000_000)
     }
 
-    fun deviceCodePretty(ctx: Context): String = deviceId(ctx).chunked(4).joinToString("-")
-
-    /** True when [code] (base64 RSA signature) is a valid activation for this [device]. Offline, no network. */
-    private fun verify(device: String, code: String?): Boolean {
-        val sig = code?.trim()?.replace("\n", "")?.takeIf { it.isNotEmpty() } ?: return false
-        return runCatching {
-            val key = KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(Base64.decode(PUBLIC_KEY_B64, Base64.DEFAULT)))
-            Signature.getInstance("SHA256withRSA").run {
-                initVerify(key); update(device.toByteArray()); verify(Base64.decode(sig, Base64.DEFAULT))
-            }
-        }.getOrDefault(false)
+    /** The 6-digit activation code that matches [device] (same formula the Mac script / page uses). */
+    fun codeFor(device: String): String {
+        val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(secret, "HmacSHA256")) }
+        val d = mac.doFinal(device.toByteArray())
+        val n = (0 until 8).fold(0L) { acc, i -> (acc shl 8) or (d[i].toLong() and 0xff) }
+        return "%06d".format((n % 1_000_000 + 1_000_000) % 1_000_000)
     }
 
-    /** Try an activation code the owner gave (pasted). Stores it and unlocks on success. */
+    private fun check(device: String, code: String?): Boolean {
+        val c = code?.trim()?.filter { it.isDigit() } ?: return false
+        return c.length == 6 && constEq(c, codeFor(device))
+    }
+
+    /** Constant-time compare, so timing doesn't leak the code. */
+    private fun constEq(a: String, b: String): Boolean {
+        if (a.length != b.length) return false
+        var r = 0; for (i in a.indices) r = r or (a[i].code xor b[i].code); return r == 0
+    }
+
+    /** Apply a 6-digit code the owner gave. */
     fun applyCode(code: String): Boolean {
-        val ok = verify(deviceId(app), code)
-        if (ok) { Prefs.putNow(app, Prefs.LICENSE, code.trim()); activated = true; status = "Активировано" }
+        val c = code.trim().filter { it.isDigit() }
+        val ok = check(deviceId(app), c)
+        if (ok) { Prefs.putNow(app, Prefs.LICENSE, c); activated = true; status = "Активировано" }
         else status = "Код не подходит для этой магнитолы"
         return ok
     }
 
-    /**
-     * Ask the owner's activation service whether this device was approved, and if so fetch + store the code.
-     * The service only returns a code the owner already signed with the private key, so this can't be spoofed.
-     */
+    /** Ask the owner's activation service whether this device was approved, then store its code. */
     fun checkOnline(onDone: (Boolean) -> Unit = {}) {
         val base = BuildConfig.ACTIVATION_URL
-        if (base.isBlank()) { status = "Адрес активации не задан — введите код вручную"; onDone(false); return }
+        if (base.isBlank()) { status = "Введите код активации, полученный у владельца"; onDone(false); return }
         if (busy) return
         busy = true; status = "Проверяю активацию…"
         Thread {
@@ -88,8 +96,8 @@ object License {
                 c.connectTimeout = 8000; c.readTimeout = 8000
                 if (c.responseCode != 200) { c.disconnect(); return@runCatching false }
                 val body = c.inputStream.bufferedReader().use { it.readText() }; c.disconnect()
-                val sig = JSONObject(body).optString("sig")
-                sig.isNotEmpty() && verify(device, sig).also { if (it) Prefs.putNow(app, Prefs.LICENSE, sig) }
+                val code = JSONObject(body).optString("code")
+                check(device, code).also { if (it) Prefs.putNow(app, Prefs.LICENSE, code) }
             }.getOrDefault(false)
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 busy = false
