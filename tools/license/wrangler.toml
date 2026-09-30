@@ -6,4 +6,4 @@ compatibility_date = "2024-11-01"
 #   npx wrangler kv namespace create DEVICES)
 [[kv_namespaces]]
 binding = "DEVICES"
-id = "REPLACE_WITH_KV_ID"
+id = "cbfdd88e424a4a1a80d859ca9c673a23"

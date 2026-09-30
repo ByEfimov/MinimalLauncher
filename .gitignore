@@ -15,3 +15,7 @@ keystore/*.jks
 *.pem
 *-secret/
 MinimalLauncher-secret/
+
+# кэш wrangler (Cloudflare)
+.wrangler/
+tools/license/.wrangler/
