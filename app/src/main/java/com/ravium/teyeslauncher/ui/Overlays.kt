@@ -86,6 +86,7 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.Weather -> WeatherScreen(s)
                 is Overlay.Dock -> DockScreen(s)
                 is Overlay.HomeLayout -> HomeLayoutScreen(s)
+                is Overlay.Offline -> OfflineScreen(s)
                 is Overlay.Wheel -> WheelScreen(s)
                 is Overlay.TileCatalog -> TileCatalogScreen(s)
                 is Overlay.Odometer -> OdometerScreen(s)

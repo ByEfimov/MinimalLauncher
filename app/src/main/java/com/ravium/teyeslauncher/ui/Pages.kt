@@ -576,3 +576,102 @@ fun HomeLayoutScreen(s: LauncherState) {
         }
     }
 }
+
+// ============================ OFFLINE MAPS ============================
+
+@Composable
+fun OfflineScreen(s: LauncherState) {
+    val ctx = LocalContext.current
+    val ver = OfflineMaps.version
+    var query by remember { mutableStateOf("") }
+    val loc = s.vehicle.location
+    LaunchedEffect(Unit) {
+        OfflineMaps.start(); OfflineMaps.refreshSize()
+        loc?.let { OfflineMaps.findNearby(it.latitude, it.longitude) }
+    }
+    val all = remember(ver) { OfflineMaps.regions() }
+    val routeStatus = s.vehicle.limits.routeStatus
+    Column(Modifier.fillMaxSize()) {
+        OverlayHeader("Карты без интернета") { s.overlay = null }
+        Spacer(Modifier.height(10.dp))
+        if (!OfflineMaps.available) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.fillMaxWidth().clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(22.dp)) {
+                        Text("Скачивание работает с картой Яндекса", style = t(22f, C.Text, FontWeight.Medium))
+                        Spacer(Modifier.height(8.dp))
+                        Text("Введите бесплатный ключ Яндекс MapKit — и можно будет заранее скачать свою область: карта, маршруты и поиск " +
+                            "будут работать без интернета.\n\nСейчас (OpenStreetMap) лаунчер сохраняет всё, что уже было на экране (до 300 МБ), " +
+                            "а ограничения скорости и камеры загружает вдоль всего маршрута, пока есть интернет.", style = t(16f, C.Text2))
+                        Spacer(Modifier.height(16.dp))
+                        PrimaryButton("Ввести ключ Яндекса") { s.overlay = Overlay.ApiKey }
+                    }
+                }
+                Column(Modifier.weight(1f)) { routeStatus?.let { RowCard(it, "Лаунчер загружает их сам при построении маршрута") { Icon(Icons.Outlined.Route, null, tint = C.Text2, modifier = Modifier.size(26.dp)) } } }
+            }
+            return@Column
+        }
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            // ---- left: what's saved, nearby regions
+            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                RowCard("Сохранено на магнитоле: " + (OfflineMaps.cacheSize ?: "…"),
+                    info = "Скачанная область работает без интернета: карта, маршруты и поиск. Обновляется сама, когда есть Wi-Fi или интернет с телефона. " +
+                        "Для дальней поездки скачайте все области по пути заранее.") {
+                    Icon(Icons.Outlined.SdStorage, null, tint = C.Text2, modifier = Modifier.size(26.dp))
+                }
+                RowCard(routeStatus ?: "Ограничения скорости на маршруте", if (routeStatus == null) "Загрузятся сами, когда построите маршрут" else "Будут работать и без интернета",
+                    info = "Когда вы строите маршрут, лаунчер сразу загружает ограничения скорости и камеры вдоль всего пути, пока есть интернет.") {
+                    Icon(Icons.Outlined.Speed, null, tint = C.Text2, modifier = Modifier.size(26.dp))
+                }
+                val near = all.filter { it.id in OfflineMaps.nearby }
+                if (near.isNotEmpty()) { Section("Где вы сейчас"); near.forEach { RegionRow(it, ver) } }
+                val saved = all.filter { OfflineMaps.state(it.id) in setOf(com.yandex.mapkit.offline_cache.RegionState.COMPLETED,
+                    com.yandex.mapkit.offline_cache.RegionState.DOWNLOADING, com.yandex.mapkit.offline_cache.RegionState.PAUSED,
+                    com.yandex.mapkit.offline_cache.RegionState.OUTDATED, com.yandex.mapkit.offline_cache.RegionState.NEED_UPDATE) && it.id !in OfflineMaps.nearby }
+                if (saved.isNotEmpty()) { Section("Скачанные"); saved.forEach { RegionRow(it, ver) } }
+                if (all.isEmpty()) Text("Список областей загружается — нужен интернет…", style = t(16f, C.Muted), modifier = Modifier.padding(6.dp))
+            }
+            // ---- right: search all regions
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                InputField(query, { query = it }, "Найти область или город")
+                Spacer(Modifier.height(10.dp))
+                val q = query.trim().lowercase()
+                val list = remember(ver, q) {
+                    (if (q.length < 2) all.filter { it.country.contains("Росс") } else all.filter { it.name.lowercase().contains(q) || it.country.lowercase().contains(q) })
+                        .sortedBy { it.name }.take(80)
+                }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    list.forEach { RegionRow(it, ver) }
+                    if (list.isEmpty() && all.isNotEmpty()) Text("Ничего не найдено", style = t(16f, C.Muted), modifier = Modifier.padding(6.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegionRow(r: com.yandex.mapkit.offline_cache.Region, ver: Int) {
+    val st = remember(ver, r.id) { OfflineMaps.state(r.id) }
+    val prog = remember(ver, r.id) { OfflineMaps.progress(r.id) }
+    var confirm by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape)
+        .padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(r.name, style = t(17f, C.Text, FontWeight.Medium), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOfNotNull(r.country.takeIf { it.isNotBlank() }, r.size?.text).joinToString(" · "), style = t(13f, C.Muted), maxLines = 1)
+            if (st == com.yandex.mapkit.offline_cache.RegionState.DOWNLOADING || st == com.yandex.mapkit.offline_cache.RegionState.PAUSED)
+                ProgressLine(prog, C.Yellow, Modifier.padding(top = 6.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        when (st) {
+            com.yandex.mapkit.offline_cache.RegionState.DOWNLOADING -> SmallButton("${(prog * 100).toInt()}% · пауза") { OfflineMaps.pause(r.id) }
+            com.yandex.mapkit.offline_cache.RegionState.PAUSED -> SmallButton("Продолжить") { OfflineMaps.download(r.id) }
+            com.yandex.mapkit.offline_cache.RegionState.COMPLETED -> SmallButton(if (confirm) "Точно удалить?" else "✓ Скачано") {
+                if (confirm) { OfflineMaps.drop(r.id); confirm = false } else confirm = true
+            }
+            com.yandex.mapkit.offline_cache.RegionState.OUTDATED, com.yandex.mapkit.offline_cache.RegionState.NEED_UPDATE -> SmallButton("Обновить") { OfflineMaps.download(r.id) }
+            com.yandex.mapkit.offline_cache.RegionState.UNSUPPORTED -> Text("недоступно", style = t(14f, C.Muted))
+            else -> SmallButton("Скачать") { OfflineMaps.download(r.id) }
+        }
+    }
+}

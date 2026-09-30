@@ -37,7 +37,17 @@ class SpeedLimit {
 
     private class Cam(val id: Long, val x: Double, val y: Double, val limit: Int?)
     private class Way(val xs: DoubleArray, val ys: DoubleArray, val fwd: Int?, val bwd: Int?, val both: Int?, val oneway: Boolean)
-    private class Area(val lat0: Double, val lon0: Double, val ways: List<Way>, val cams: List<Cam> = emptyList())
+    private class Area(val lat0: Double, val lon0: Double, val ways: List<Way>, val cams: List<Cam> = emptyList()) {
+        // bounding box in local metres (+ margin) — used to pick a pre-loaded route area for the car's position
+        val minX = (ways.minOfOrNull { it.xs.min() } ?: 0.0) - 150; val maxX = (ways.maxOfOrNull { it.xs.max() } ?: 0.0) + 150
+        val minY = (ways.minOfOrNull { it.ys.min() } ?: 0.0) - 150; val maxY = (ways.maxOfOrNull { it.ys.max() } ?: 0.0) + 150
+    }
+    /** Roads along the whole active route, loaded while online — limits and cameras keep working without internet. */
+    @Volatile private var routeAreas: List<Area> = emptyList()
+    /** «Ограничения на маршруте: загружено 120 из 340 км» */
+    var routeStatus by mutableStateOf<String?>(null)
+        private set
+    private var routeKey = ""
 
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -67,7 +77,11 @@ class SpeedLimit {
         val now = SystemClock.elapsedRealtime()
         val retryAfter = if (lastError != null) 20_000 else 8000
         if ((a == null || meters(a.lat0, a.lon0, l.latitude, l.longitude) > 180) && !fetching && now - lastFetchAt > retryAfter) fetch(l)
-        if (a != null) { match(a, l, now); cameras(a, l) }
+        // live area when it's near; otherwise a pre-loaded piece of the route (e.g. no internet)
+        val use = a?.takeIf { meters(it.lat0, it.lon0, l.latitude, l.longitude) < 450 }
+            ?: routeAreas.firstOrNull { r -> project(r, l.latitude, l.longitude).let { (x, y) -> x in r.minX..r.maxX && y in r.minY..r.maxY } }
+            ?: a
+        if (use != null) { match(use, l, now); cameras(use, l) }
         if (now - lastMatchAt > 30_000) limit = null
     }
 
@@ -143,7 +157,55 @@ class SpeedLimit {
         }
     }
 
-    private fun download(url: String, query: String, lat: Double, lon: Double): Area {
+    /**
+     * Pre-load speed limits and cameras along the route (in ~25 km pieces, roads within 60 m of the line).
+     * Overpass «around» accepts a whole polyline, so one request covers one piece.
+     */
+    fun prefetchRoute(points: List<DoubleArray>, key: String) {
+        if (key == routeKey || points.size < 2) return
+        routeKey = key
+        routeAreas = emptyList()
+        // thin the line to a point every ~150 m, then cut into ~25 km chunks (max ~800 km)
+        val thin = ArrayList<DoubleArray>(); var acc = 0.0; var total = 0.0
+        thin += points.first()
+        for (i in 1 until points.size) {
+            val d = meters(points[i - 1][0], points[i - 1][1], points[i][0], points[i][1]); acc += d; total += d
+            if (acc >= 150 || i == points.size - 1) { thin += points[i]; acc = 0.0 }
+            if (total > 800_000) break
+        }
+        val chunks = ArrayList<List<DoubleArray>>(); var cur = ArrayList<DoubleArray>(); var len = 0.0
+        for (i in thin.indices) {
+            if (cur.isNotEmpty()) len += meters(cur.last()[0], cur.last()[1], thin[i][0], thin[i][1])
+            cur += thin[i]
+            if (len >= 25_000) { chunks += cur; cur = arrayListOf(thin[i]); len = 0.0 }
+        }
+        if (cur.size > 1) chunks += cur
+        val totalKm = (total / 1000).roundToInt()
+        routeStatus = "Ограничения на маршруте: загрузка…"
+        io.execute {
+            val got = ArrayList<Area>()
+            var doneKm = 0.0
+            for (ch in chunks) {
+                if (routeKey != key) return@execute   // a newer route replaced this one
+                val line = ch.joinToString(",") { "%.5f,%.5f".format(java.util.Locale.US, it[0], it[1]) }
+                val q = "[out:json][timeout:25];(way(around:60,$line)[highway~\"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$\"];" +
+                    "node(around:120,$line)[highway=speed_camera];);out tags geom;"
+                var area: Area? = null
+                for (attempt in endpoints.indices) {
+                    area = runCatching { download(endpoints[(endpoint + attempt) % endpoints.size], q, ch[0][0], ch[0][1], updateUrban = false) }.getOrNull()
+                    if (area != null) break
+                }
+                if (area != null) { got += area; routeAreas = got.toList() }
+                for (k in 1 until ch.size) doneKm += meters(ch[k - 1][0], ch[k - 1][1], ch[k][0], ch[k][1]) / 1000
+                val n = got.size; val d = doneKm.roundToInt()
+                main.post { if (routeKey == key) routeStatus = "Ограничения на маршруте: $d из $totalKm км" + if (n < chunks.size && d >= totalKm) " (часть не загрузилась)" else "" }
+            }
+        }
+    }
+
+    fun clearRoute() { routeKey = ""; routeAreas = emptyList(); routeStatus = null }
+
+    private fun download(url: String, query: String, lat: Double, lon: Double, updateUrban: Boolean = true): Area {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 6000; c.readTimeout = 15000
         c.requestMethod = "POST"; c.doOutput = true
@@ -185,7 +247,7 @@ class SpeedLimit {
             }
             ways += Way(xs, ys, fwd, bwd, both, oneway)
         }
-        main.post { urban = isUrban }
+        if (updateUrban) main.post { urban = isUrban }
         return Area(lat, lon, ways, cams)
     }
 

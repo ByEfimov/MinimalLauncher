@@ -36,6 +36,7 @@ sealed interface Overlay {
     data object Weather : Overlay
     data object Dock : Overlay
     data object HomeLayout : Overlay
+    data object Offline : Overlay
     data object Wheel : Overlay
     data object TileCatalog : Overlay
     data object Odometer : Overlay
@@ -53,7 +54,12 @@ class LauncherState(val activity: MainActivity) {
     val status = Status(activity.applicationContext)
     val updater = Updater(activity.applicationContext)
     val nav = NavRepo(activity.applicationContext)
-    init { vehicle.onFix = { nav.onLocation(it) }; current = this }   // routing follows GPS without touching the UI tree
+    init {
+        vehicle.onFix = { nav.onLocation(it) }
+        current = this
+        // limits & cameras along the whole route, fetched while there's internet
+        nav.onRoute = { r -> if (r == null) vehicle.limits.clearRoute() else vehicle.limits.prefetchRoute(r.points, "${r.destination.lat},${r.destination.lon}") }
+    }   // routing follows GPS without touching the UI tree
     /** Night dimming is on right now (auto by sunset, or forced in settings). */
     var night by mutableStateOf(false)
     var overlay by mutableStateOf<Overlay?>(null)

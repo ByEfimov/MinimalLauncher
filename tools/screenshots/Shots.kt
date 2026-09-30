@@ -58,3 +58,12 @@ class SRemEdit : Shot("RemEdit", { it.state.overlay = Overlay.ReminderEdit(null,
 class SWeather : Shot("Weather", { it.state.overlay = Overlay.Weather })
 class SHomeCustom : Shot("HomeCustom", { Prefs.put(it, Prefs.HOME_BLOCKS, "music,tile=weather,tile=volume"); Prefs.put(it, Prefs.HOME_SIDE, "right"); it.state.settingsVersion++ })
 class SHomeLayoutEditor : Shot("HomeLayoutEditor", { it.state.overlay = Overlay.HomeLayout })
+/** The car marker bitmap on a map-like background, 4× — to judge the arrow design. */
+class SArrow : Shot("Arrow", { a ->
+    val bm = com.ravium.teyeslauncher.ui.carArrowBitmap(a, 54f)
+    val out = android.graphics.Bitmap.createBitmap(bm.width * 4 + 80, bm.height * 4 + 80, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(out); c.drawColor(0xFF1E2226.toInt())
+    c.drawBitmap(bm, null, android.graphics.RectF(40f, 40f, 40f + bm.width * 4, 40f + bm.height * 4), android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+    java.io.File((System.getProperty("shots.dir") ?: "build/shots") + "/ArrowBig.png").outputStream().use { out.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+})
+class SOffline : Shot("Offline", { it.state.overlay = Overlay.Offline })

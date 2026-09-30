@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.DownloadForOffline
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Search
@@ -67,18 +68,42 @@ class MapController {
 
 private val RouteColor = 0xFF3D8BFF.toInt()
 
-/** White car arrow with a blue edge — used by both map engines. */
-fun carArrowBitmap(ctx: Context, sizeDp: Float = 46f): Bitmap {
-    val px = (sizeDp * ctx.resources.displayMetrics.density).toInt().coerceAtLeast(32)
+/**
+ * Car marker: a rounded navigation arrow (blue gradient, white rim, soft shadow) on a faint halo — used by both map engines.
+ * Drawn once into a bitmap; the map rotates it by the travel direction.
+ */
+fun carArrowBitmap(ctx: Context, sizeDp: Float = 54f): Bitmap {
+    val px = (sizeDp * ctx.resources.displayMetrics.density).toInt().coerceAtLeast(40)
     val b = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
     val c = Canvas(b)
     val s = px / 2f
-    c.drawCircle(s, s, s * 0.98f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x4439A0FF })
+    // halo
+    c.drawCircle(s, s, s * 0.98f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = android.graphics.RadialGradient(s, s, s * 0.98f, intArrayOf(0x553D8BFF, 0x223D8BFF, 0x003D8BFF), floatArrayOf(0f, 0.6f, 1f), android.graphics.Shader.TileMode.CLAMP)
+    })
+    // arrow: tip, right wing, notch, left wing — corners rounded
     val path = Path().apply {
-        moveTo(s, s * 0.22f); lineTo(s + s * 0.5f, s * 1.62f); lineTo(s, s * 1.3f); lineTo(s - s * 0.5f, s * 1.62f); close()
+        moveTo(s, s * 0.30f)
+        lineTo(s + s * 0.44f, s * 1.52f)
+        lineTo(s, s * 1.27f)
+        lineTo(s - s * 0.44f, s * 1.52f)
+        close()
     }
-    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() })
-    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1E88FF.toInt(); style = Paint.Style.STROKE; strokeWidth = px * 0.05f; strokeJoin = Paint.Join.ROUND })
+    val round = android.graphics.CornerPathEffect(px * 0.06f)
+    // soft shadow + white rim (drawn wider, so it shows as an outline around the fill)
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFFFFFF.toInt(); style = Paint.Style.FILL_AND_STROKE; strokeWidth = px * 0.075f
+        strokeJoin = Paint.Join.ROUND; pathEffect = round
+        setShadowLayer(px * 0.07f, 0f, px * 0.03f, 0x66000000)
+    })
+    // blue gradient fill
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL; pathEffect = round
+        shader = android.graphics.LinearGradient(s, s * 0.3f, s, s * 1.5f, 0xFF5AAEFF.toInt(), 0xFF1A6CF0.toInt(), android.graphics.Shader.TileMode.CLAMP)
+    })
+    // subtle highlight on the left half — gives the arrow a little volume
+    c.drawPath(Path().apply { moveTo(s, s * 0.36f); lineTo(s, s * 1.24f); lineTo(s - s * 0.38f, s * 1.45f); close() },
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x2EFFFFFF; pathEffect = round })
     return b
 }
 
@@ -128,6 +153,7 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
                 s.nav.busy && s.nav.route == null -> StatusChip("Строю маршрут…")
                 s.nav.message != null -> StatusChip(s.nav.message!!) { s.nav.message = null }
                 s.vehicle.location == null -> StatusChip(if (!s.vehicle.hasPermission) "Нет доступа к геопозиции" else "Поиск GPS…")
+                route != null && !s.status.online -> StatusChip("Нет интернета — веду по GPS, маршрут сохранён")
             }
         }
 
@@ -158,12 +184,17 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
                 }
                 Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
                 PillIcon(Icons.Outlined.Search, "Поиск") { s.overlay = com.ravium.teyeslauncher.Overlay.Search() }
+                Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
+                PillIcon(Icons.Outlined.DownloadForOffline, "Карты без интернета") { s.overlay = com.ravium.teyeslauncher.Overlay.Offline }
+                // dot while a region is downloading
+                if (OfflineMaps.available && OfflineMaps.anyDownloading)
+                    Box(Modifier.offset(x = (-22).dp, y = (-12).dp).size(8.dp).clip(CircleShape).background(C.Yellow))
             }
         }
 
         // bottom-left: time · distance · arrival (remaining), like the Яндекс Карты bottom bar
         s.nav.route?.let { r ->
-            Box(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 26.dp, end = 170.dp)) { RouteChip(s, r, s.nav.progress) }
+            Box(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 26.dp, end = 230.dp)) { RouteChip(s, r, s.nav.progress) }
         }
 
         if (!YandexMaps.enabled) Text("© OpenStreetMap", style = TextStyle(fontSize = 10.sp, color = Color(0x99FFFFFF)),

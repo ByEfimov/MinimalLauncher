@@ -254,9 +254,12 @@ class NavRepo(private val ctx: Context) {
 
     private var pending: Place? = null
 
-    fun clear() { route = null; progress = null; pending = null; message = null }
+    fun clear() { route = null; progress = null; pending = null; message = null; onRoute?.invoke(null) }
 
-    private fun setRoute(r: Route, at: Location) { route = r; lastIdx = 0; Voice.resetRoute(); updateProgress(r, at) }
+    /** Called with every new route (the launcher pre-loads speed limits along it). */
+    var onRoute: ((Route?) -> Unit)? = null
+
+    private fun setRoute(r: Route, at: Location) { route = r; lastIdx = 0; Voice.resetRoute(); updateProgress(r, at); onRoute?.invoke(r) }
 
     /** Project the car onto the route line → along-route distance → next manoeuvre. */
     private fun updateProgress(r: Route, l: Location) {
