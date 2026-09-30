@@ -7,6 +7,8 @@
  * Секреты (wrangler secret put ...):
  *   SECRET_HEX  — тот же секрет, что в приложении (…-secret/hmac_secret.hex)
  *   ADMIN_PASS  — пароль страницы одобрения
+ *   TG_TOKEN    — токен Telegram-бота (для активации с телефона в России)
+ *   TG_OWNER    — ваш telegram id (кому бот отвечает)
  * Привязка KV: DEVICES (одобренные магнитолы).
  *
  *   GET  /                — страница владельца (с телефона)
@@ -59,6 +61,33 @@ export default {
         const list = await env.DEVICES.list();
         return json({ devices: list.keys.map((k) => k.name) });
       }
+    }
+
+    // Telegram-бот: владелец пишет боту 6-значный код магнитолы, бот отвечает кодом активации.
+    // Работает в России (общаетесь через приложение Telegram; воркер вызывает только Telegram-серверы).
+    // Вебхук: POST /tg/<TG_TOKEN>. Отвечаем только владельцу (TG_OWNER — ваш telegram id).
+    if (req.method === "POST" && url.pathname === "/tg/" + env.TG_TOKEN) {
+      const upd = await req.json().catch(() => ({}));
+      const msg = upd.message || upd.edited_message;
+      if (msg && msg.chat) {
+        const chatId = msg.chat.id;
+        const from = String(msg.from && msg.from.id);
+        const text = (msg.text || "").trim();
+        let reply;
+        if (env.TG_OWNER && from !== String(env.TG_OWNER)) {
+          reply = "Доступ только у владельца. Ваш id: " + from;
+        } else if (/^\/start/.test(text)) {
+          reply = "Пришлите 6-значный код с экрана магнитолы — отвечу кодом активации.";
+        } else {
+          const d = clean(text);
+          reply = d.length === 6 ? ("Код активации для " + d + ":\n" + (await code(env, d))) : "Нужен код магнитолы — ровно 6 цифр.";
+        }
+        await fetch("https://api.telegram.org/bot" + env.TG_TOKEN + "/sendMessage", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: reply }),
+        });
+      }
+      return new Response("ok");
     }
 
     if (url.pathname === "/") return new Response(PAGE, { headers: { "content-type": "text/html; charset=utf-8" } });
