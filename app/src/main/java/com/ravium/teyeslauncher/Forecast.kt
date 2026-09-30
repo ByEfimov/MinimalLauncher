@@ -20,15 +20,66 @@ data class Forecast(
 
 /** Shared weather fetch helpers. Weather codes are normalised to the Open-Meteo scale so icons/описания одни для всех источников. */
 object Wx {
-    /** HTTP GET as text. wttr.in returns JSON only to a curl-like User-Agent, so we set one. */
-    fun get(url: String): String? = runCatching {
+    /** HTTP GET as text with a chosen User-Agent (wttr.in needs curl-like; met.no needs an app id). */
+    fun get(url: String, ua: String = "curl/8.4"): String? = runCatching {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 8000; c.readTimeout = 9000
-        c.setRequestProperty("User-Agent", "curl/8.4")
+        c.setRequestProperty("User-Agent", ua)
         c.setRequestProperty("Accept", "application/json")
         if (c.responseCode != 200) { c.disconnect(); return null }
         c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
     }.getOrNull()
+
+    const val MET_UA = "MinimalDrive/1.0 github.com/ByEfimov/MinimalLauncher"
+
+    /** Ключ Яндекс Погоды (белый список РФ). Задаётся в настройках; если пуст — используются запасные источники. */
+    @Volatile var yandexWeatherKey: String? = null
+
+    fun getYandex(url: String): String? = runCatching {
+        val key = yandexWeatherKey?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val c = URL(url).openConnection() as HttpURLConnection
+        c.connectTimeout = 8000; c.readTimeout = 9000
+        c.setRequestProperty("X-Yandex-API-Key", key)
+        if (c.responseCode != 200) { c.disconnect(); return null }
+        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
+    }.getOrNull()
+
+    /** Яндекс Погода condition → Open-Meteo-like code. */
+    fun cond(c: String): Int {
+        val x = c.lowercase()
+        return when {
+            x.contains("thunderstorm") -> 95
+            x.contains("hail") -> 77
+            x.contains("wet-snow") -> 66
+            x.contains("snow") -> 73
+            x.contains("heavy-rain") || x.contains("continuous") -> 65
+            x.contains("showers") -> 80
+            x.contains("rain") -> 63
+            x.contains("drizzle") -> 51
+            x == "overcast" || x == "cloudy" -> 3
+            x == "partly-cloudy" -> 2
+            x == "clear" -> 0
+            else -> 3
+        }
+    }
+
+    /** MET Norway (yr.no) symbol_code → Open-Meteo-like code. */
+    fun met(sym: String): Int {
+        val x = sym.lowercase()
+        return when {
+            x.contains("thunder") -> 95
+            x.contains("fog") -> 45
+            x.contains("sleet") -> 66
+            x.contains("snow") -> 73
+            x.contains("heavyrain") -> 65
+            x.contains("rain") -> 61
+            x.startsWith("cloudy") -> 3
+            x.startsWith("partlycloudy") -> 2
+            x.startsWith("fair") -> 1
+            x.startsWith("clearsky") -> 0
+            else -> 3
+        }
+    }
 
     /** WWO code (wttr.in) → Open-Meteo-like code, so the same icons/описания подходят. */
     fun wwo(code: Int): Int = when (code) {
@@ -47,9 +98,21 @@ object Wx {
     /** Current temp + normalised code. Tries wttr.in, then Open-Meteo. */
     fun current(lat: Double, lon: Double): Pair<Int, Int>? {
         runCatching {
+            val body = getYandex("https://api.weather.yandex.ru/v2/forecast?lat=%.4f&lon=%.4f&limit=1&hours=false".format(Locale.US, lat, lon)) ?: return@runCatching null
+            val f = JSONObject(body).getJSONObject("fact")
+            return f.getInt("temp") to cond(f.getString("condition"))
+        }
+        runCatching {
             val body = get("https://wttr.in/%.4f,%.4f?format=j1".format(Locale.US, lat, lon)) ?: return@runCatching null
             val cc = JSONObject(body).getJSONArray("current_condition").getJSONObject(0)
             return cc.getString("temp_C").toInt() to wwo(cc.getString("weatherCode").toInt())
+        }
+        runCatching {
+            val body = get("https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=%.4f&lon=%.4f".format(Locale.US, lat, lon), MET_UA) ?: return@runCatching null
+            val t0 = JSONObject(body).getJSONObject("properties").getJSONArray("timeseries").getJSONObject(0).getJSONObject("data")
+            val temp = t0.getJSONObject("instant").getJSONObject("details").getDouble("air_temperature").roundToInt()
+            val sym = t0.optJSONObject("next_1_hours")?.optJSONObject("summary")?.optString("symbol_code") ?: "cloudy"
+            return temp to met(sym)
         }
         runCatching {
             val body = get("https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f&current=temperature_2m,weather_code".format(Locale.US, lat, lon)) ?: return@runCatching null
@@ -66,7 +129,7 @@ object ForecastRepo {
     suspend fun load(lat: Double, lon: Double): Forecast? = withContext(Dispatchers.IO) {
         val key = "%.2f,%.2f".format(Locale.US, lat, lon)
         cache?.let { (k, v) -> if (k == key && System.currentTimeMillis() - v.first < 15 * 60_000) return@withContext v.second }
-        val fc = fromWttr(lat, lon) ?: fromOpenMeteo(lat, lon)
+        val fc = fromYandex(lat, lon) ?: fromWttr(lat, lon) ?: fromMetNo(lat, lon) ?: fromOpenMeteo(lat, lon)
         if (fc != null) cache = key to (System.currentTimeMillis() to fc)
         fc
     }
@@ -82,6 +145,48 @@ object ForecastRepo {
             if (windMs >= 15) add("Сильный ветер")
         }
     }
+
+    private fun fromYandex(lat: Double, lon: Double): Forecast? = runCatching {
+        val body = Wx.getYandex("https://api.weather.yandex.ru/v2/forecast?lat=%.4f&lon=%.4f&limit=6&hours=true&extra=true&lang=ru_RU".format(Locale.US, lat, lon)) ?: return null
+        val j = JSONObject(body)
+        val fact = j.getJSONObject("fact")
+        val fcs = j.getJSONArray("forecasts")
+        val nowH = SimpleDateFormat("H", Locale.US).format(java.util.Date()).toInt()
+        val hours = ArrayList<Forecast.Hour>()
+        for (di in 0 until fcs.length()) {
+            val hrs = fcs.getJSONObject(di).optJSONArray("hours") ?: continue
+            for (hi in 0 until hrs.length()) {
+                val h = hrs.getJSONObject(hi)
+                val hh = h.getString("hour").toInt()
+                if (di == 0 && hh < nowH) continue
+                hours += Forecast.Hour("%02d:00".format(hh), h.getInt("temp"), Wx.cond(h.getString("condition")), h.optInt("prec_prob", 0))
+                if (hours.size >= 16) break
+            }
+            if (hours.size >= 16) break
+        }
+        val dayLabelFmt = SimpleDateFormat("EE, d MMM", Locale("ru"))
+        val dayInFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val days = (0 until fcs.length()).take(6).map { i ->
+            val f = fcs.getJSONObject(i)
+            val date = runCatching { dayInFmt.parse(f.getString("date"))!! }.getOrDefault(java.util.Date())
+            val label = when (i) { 0 -> "Сегодня"; 1 -> "Завтра"; else -> dayLabelFmt.format(date).replaceFirstChar { it.titlecase() } }
+            val hrs = f.optJSONArray("hours")
+            var mn = Int.MAX_VALUE; var mx = Int.MIN_VALUE; var rain = 0.0; var middayCode = 3
+            if (hrs != null) for (hi in 0 until hrs.length()) {
+                val h = hrs.getJSONObject(hi); val t = h.getInt("temp")
+                if (t < mn) mn = t; if (t > mx) mx = t
+                rain += h.optDouble("prec_mm", 0.0)
+                if (h.getString("hour").toInt() == 12) middayCode = Wx.cond(h.getString("condition"))
+            }
+            val dayShort = f.optJSONObject("parts")?.optJSONObject("day_short")
+            if (mn == Int.MAX_VALUE) { mn = dayShort?.optInt("temp_min", fact.getInt("temp")) ?: fact.getInt("temp"); mx = mn }
+            if (middayCode == 3) dayShort?.optString("condition")?.let { middayCode = Wx.cond(it) }
+            Forecast.Day(label, mn, mx, middayCode, rain)
+        }
+        val windMs = fact.optDouble("wind_speed", 0.0).roundToInt()
+        Forecast(fact.getInt("temp"), fact.optInt("feels_like", fact.getInt("temp")), Wx.cond(fact.getString("condition")),
+            windMs, fact.optInt("humidity", 0), hours, days, warningsFor(hours, windMs))
+    }.getOrNull()
 
     private fun fromWttr(lat: Double, lon: Double): Forecast? = runCatching {
         val body = Wx.get("https://wttr.in/%.4f,%.4f?format=j1".format(Locale.US, lat, lon)) ?: return null
@@ -120,6 +225,45 @@ object ForecastRepo {
         }
         Forecast(cc.getString("temp_C").toInt(), cc.getString("FeelsLikeC").toInt(), Wx.wwo(cc.getString("weatherCode").toInt()),
             windMs, cc.optString("humidity", "0").toIntOrNull() ?: 0, hours, days, warningsFor(hours, windMs))
+    }.getOrNull()
+
+    private fun fromMetNo(lat: Double, lon: Double): Forecast? = runCatching {
+        val body = Wx.get("https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=%.4f&lon=%.4f".format(Locale.US, lat, lon), Wx.MET_UA) ?: return null
+        val ts = JSONObject(body).getJSONObject("properties").getJSONArray("timeseries")
+        val utc = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+        val hourFmt = SimpleDateFormat("HH:00", Locale.US)   // local time
+        val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dayLabelFmt = SimpleDateFormat("EE, d MMM", Locale("ru"))
+        data class P(val date: java.util.Date, val temp: Int, val code: Int, val precip: Double, val hour: Int)
+        val pts = ArrayList<P>()
+        for (i in 0 until ts.length()) {
+            val e = ts.getJSONObject(i)
+            val d = e.getJSONObject("data")
+            val date = runCatching { utc.parse(e.getString("time"))!! }.getOrNull() ?: continue
+            val temp = d.getJSONObject("instant").getJSONObject("details").optDouble("air_temperature", Double.NaN)
+            if (temp.isNaN()) continue
+            val n1 = d.optJSONObject("next_1_hours")
+            val sym = n1?.optJSONObject("summary")?.optString("symbol_code")
+                ?: d.optJSONObject("next_6_hours")?.optJSONObject("summary")?.optString("symbol_code") ?: "cloudy"
+            val precip = n1?.optJSONObject("details")?.optDouble("precipitation_amount", 0.0) ?: 0.0
+            val localHour = java.util.Calendar.getInstance().apply { time = date }.get(java.util.Calendar.HOUR_OF_DAY)
+            pts += P(date, temp.roundToInt(), Wx.met(sym), precip, localHour)
+        }
+        if (pts.isEmpty()) return null
+        val cur = JSONObject(body).getJSONObject("properties").getJSONArray("timeseries").getJSONObject(0)
+            .getJSONObject("data").getJSONObject("instant").getJSONObject("details")
+        val windMs = cur.optDouble("wind_speed", 0.0).roundToInt()
+        val hum = cur.optDouble("relative_humidity", 0.0).roundToInt()
+        val hours = pts.take(16).map { Forecast.Hour(hourFmt.format(it.date), it.temp, it.code, 0) }
+        // group by local day
+        val byDay = LinkedHashMap<String, MutableList<P>>()
+        for (p in pts) byDay.getOrPut(dateKey.format(p.date)) { ArrayList() }.add(p)
+        val days = byDay.entries.take(6).mapIndexed { idx, (_, list) ->
+            val label = when (idx) { 0 -> "Сегодня"; 1 -> "Завтра"; else -> dayLabelFmt.format(list.first().date).replaceFirstChar { it.titlecase() } }
+            val midday = list.minByOrNull { kotlin.math.abs(it.hour - 12) } ?: list.first()
+            Forecast.Day(label, list.minOf { it.temp }, list.maxOf { it.temp }, midday.code, list.sumOf { it.precip })
+        }
+        Forecast(pts.first().temp, pts.first().temp, pts.first().code, windMs, hum, hours, days, warningsFor(hours, windMs))
     }.getOrNull()
 
     private fun fromOpenMeteo(lat: Double, lon: Double): Forecast? = runCatching {

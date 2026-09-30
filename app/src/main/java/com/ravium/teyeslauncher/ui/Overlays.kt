@@ -81,6 +81,7 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.Diagnostics -> DiagnosticsScreen(s)
                 is Overlay.Search -> SearchScreen(s, o.setHome)
                 is Overlay.ApiKey -> ApiKeyScreen(s)
+                is Overlay.WeatherKey -> WeatherKeyScreen(s)
                 is Overlay.Welcome -> WelcomeScreen(s)
                 is Overlay.Favorites -> FavoritesScreen(s)
                 is Overlay.Weather -> WeatherScreen(s)
@@ -633,6 +634,44 @@ private fun ApiKeyScreen(s: LauncherState) {
             Text("Сохранить и перезапустить", style = t(18f, C.Text, FontWeight.Medium))
         }
         YandexMaps.error?.takeIf { key.isNotEmpty() }?.let { Text("Состояние: $it", style = t(14f, C.Muted), modifier = Modifier.padding(6.dp)) }
+    }
+}
+
+@Composable
+private fun WeatherKeyScreen(s: LauncherState) {
+    val ctx = LocalContext.current
+    var key by remember { mutableStateOf(Prefs.str(ctx, Prefs.YANDEX_WEATHER_KEY) ?: "") }
+    val clip = ctx.getSystemService(ClipboardManager::class.java)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        OverlayHeader("Яндекс Погода") { s.overlay = Overlay.SettingsCat("map") }
+        Text("Погода из белого списка РФ — работает даже при ограничениях интернета. Нужен бесплатный ключ:\n" +
+            "1. На телефоне/компьютере откройте yandex.ru/dev/weather\n2. Подключите тариф «Погода на вашем сайте» (бесплатный)\n" +
+            "3. Скопируйте ключ и вставьте сюда.\nБез ключа погода берётся из запасных источников (могут не работать при ограничениях).",
+            style = t(16f, C.Text2), modifier = Modifier.padding(start = 6.dp, top = 4.dp, bottom = 16.dp))
+        androidx.compose.material3.TextField(
+            value = key, onValueChange = { key = it.trim() },
+            modifier = Modifier.fillMaxWidth().height(72.dp).clip(CardShape).border(Hairline, C.Stroke, CardShape),
+            placeholder = { Text("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", style = t(20f, C.Muted)) },
+            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 20.sp, color = C.Text),
+            singleLine = true,
+            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
+                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pill("Вставить из буфера") { clip.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim()?.let { key = it } }
+            Pill("Удалить ключ") { key = "" }
+        }
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(64.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
+            .clickable {
+                Prefs.put(ctx, Prefs.YANDEX_WEATHER_KEY, key.ifEmpty { null })
+                Wx.yandexWeatherKey = key.ifEmpty { null }
+                s.settingsVersion++; Apps.toast(ctx, "Сохранено"); s.overlay = Overlay.SettingsCat("map")
+            }, contentAlignment = Alignment.Center) {
+            Text("Сохранить", style = t(18f, C.Text, FontWeight.Medium))
+        }
     }
 }
 

@@ -217,6 +217,11 @@ fun SettingsCategory(s: LauncherState, id: String) {
                 RowCard("Дом", home?.let { it.name + (if (it.description.isNotBlank()) ", " + it.description else "") } ?: "Не задан — нажмите, чтобы найти адрес",
                     info = "Кнопка «Домой» на карте строит маршрут сюда. Кнопки руля и плитка «Домой» тоже используют этот адрес.",
                     onClick = { s.overlay = Overlay.Search(setHome = true) }) { Chevron() }
+                RowCard("Погода: " + (if (Prefs.str(ctx, Prefs.YANDEX_WEATHER_KEY).isNullOrBlank()) "запасные источники" else "Яндекс (белый список)"),
+                    if (Prefs.str(ctx, Prefs.YANDEX_WEATHER_KEY).isNullOrBlank()) "Нажмите, чтобы ввести ключ Яндекс Погоды" else "Ключ введён · нажмите, чтобы изменить",
+                    info = "Яндекс Погода на белом списке РФ — работает даже при ограничениях интернета. Нужен бесплатный ключ (yandex.ru/dev/weather). " +
+                        "Без ключа погода берётся из wttr.in / met.no / Open-Meteo — они могут не работать при ограничениях.",
+                    onClick = { s.overlay = Overlay.WeatherKey }) { Chevron() }
                 RowCard("Избранные места", "${s.nav.favorites.size} мест", info = "Работа, дача, спортзал… Добавляются звёздочкой в поиске. Маршрут — одно нажатие.",
                     onClick = { s.overlay = Overlay.Favorites }) { Chevron() }
             }

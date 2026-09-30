@@ -34,6 +34,7 @@ class MinimalDriveApp : Application() {
         YandexMaps.init(this)
         OfflineMaps.start()
         Voice.init(this)
+        Wx.yandexWeatherKey = Prefs.str(this, Prefs.YANDEX_WEATHER_KEY)
     }
 }
 
