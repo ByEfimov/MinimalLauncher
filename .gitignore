@@ -16,6 +16,8 @@ keystore/*.jks
 *-secret/
 MinimalLauncher-secret/
 
-# кэш wrangler (Cloudflare)
+# генератор с секретом — только у владельца, не в репозиторий
+tools/license/activator.html
+activator.html
 .wrangler/
 tools/license/.wrangler/

@@ -24,7 +24,7 @@ import javax.crypto.spec.SecretKeySpec
  */
 object License {
     // Shared secret, XOR-obfuscated so it isn't a plain string in the APK.
-    private const val OBF_B64 = "VOBG/0HVZT3p02dIxKhhW69Z103AH1hNMQi13yHKwP8="
+    private const val OBF_B64 = "y06D7hcnvHEC35o/2Aj84c89zkdXwUV2M4Mk15BH0Cw="
     private val PAD = byteArrayOf(0x9e.toByte(), 0x3c, 0x7f, 0xa1.toByte(), 0x5b, 0x2d, 0x84.toByte(), 0xc6.toByte())
     private val secret: ByteArray by lazy {
         Base64.decode(OBF_B64, Base64.DEFAULT).mapIndexed { i, b -> (b.toInt() xor PAD[i % PAD.size].toInt()).toByte() }.toByteArray()
