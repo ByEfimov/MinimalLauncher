@@ -187,21 +187,10 @@ class Weather {
         if (loc == null) return
         val now = SystemClock.elapsedRealtime()
         if (lastUpdate != 0L && now - lastUpdate < 20 * 60_000L) return
-        val result = withContext(Dispatchers.IO) {
-            runCatching {
-                val url = URL("https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f&current=temperature_2m,weather_code"
-                    .format(java.util.Locale.US, loc.latitude, loc.longitude))
-                val c = url.openConnection() as HttpURLConnection
-                c.connectTimeout = 8000; c.readTimeout = 8000
-                val body = c.inputStream.bufferedReader().use { it.readText() }
-                c.disconnect()
-                val cur = JSONObject(body).getJSONObject("current")
-                cur.getDouble("temperature_2m").roundToInt() to cur.getInt("weather_code")
-            }.getOrNull()
-        }
+        val result = withContext(Dispatchers.IO) { Wx.current(loc.latitude, loc.longitude) }
         if (result != null) { tempC = result.first; code = result.second; lastUpdate = now }
         else lastUpdate = now - 15 * 60_000L // retry in ~5 min
-    }
+        }
 }
 
 class Status(private val ctx: Context) {

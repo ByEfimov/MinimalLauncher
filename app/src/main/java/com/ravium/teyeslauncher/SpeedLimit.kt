@@ -56,9 +56,11 @@ class SpeedLimit {
     private var lastFetchAt = 0L
     private var lastMatchAt = 0L
     private var endpoint = 0
+    // Порядок важен для России: сначала российские/ближние зеркала, потом мировые.
     private val endpoints = listOf(
-        "https://overpass-api.de/api/interpreter",
+        "https://overpass.openstreetmap.ru/cgi/interpreter",
         "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
         "https://overpass.private.coffee/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
     )

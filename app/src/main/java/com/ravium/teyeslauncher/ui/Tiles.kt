@@ -319,24 +319,32 @@ private fun TileView(s: LauncherState, tile: TileSpec, tick: Int, edit: Boolean,
 @Composable
 private fun SliderTile(def: TileDef, a: TileState, tile: TileSpec, edit: Boolean) {
     val vertical = tile.h > tile.w
-    var local by remember(a.fraction) { mutableFloatStateOf(a.fraction ?: 0f) }
+    var dragging by remember { mutableStateOf(false) }
+    var local by remember { mutableFloatStateOf(a.fraction ?: 0f) }
+    // sync from the real system value only when the finger is NOT down (otherwise the 1-second tick fights the drag)
+    LaunchedEffect(a.fraction, dragging) { if (!dragging) a.fraction?.let { local = it } }
     val setter = rememberUpdatedState(a.set)
+    val pct = (local * 100).roundToInt()
     Box(Modifier.fillMaxSize().pointerInput(edit, vertical) {
-        if (!edit) detectDragGestures { ch, amt ->
+        if (!edit) detectDragGestures(
+            onDragStart = { dragging = true },
+            onDragEnd = { dragging = false },
+            onDragCancel = { dragging = false },
+        ) { ch, amt ->
             ch.consume()
             val d = if (vertical) -amt.y / size.height else amt.x / size.width
             local = (local + d).coerceIn(0f, 1f); setter.value?.invoke(local)
         }
     }) {
         Box(Modifier.align(if (vertical) Alignment.BottomStart else Alignment.CenterStart)
-            .then(if (vertical) Modifier.fillMaxWidth().fillMaxHeight(local) else Modifier.fillMaxHeight().fillMaxWidth(local))
+            .then(if (vertical) Modifier.fillMaxWidth().fillMaxHeight(local.coerceIn(0f, 1f)) else Modifier.fillMaxHeight().fillMaxWidth(local.coerceIn(0f, 1f)))
             .background(Color.White.copy(alpha = 0.9f)))
         val onFill = if (vertical) local > 0.22f else local > 0.12f
         Icon(def.icon, null, tint = if (onFill) Color(0xFF15171A) else Color.White,
             modifier = Modifier.align(if (vertical) Alignment.BottomCenter else Alignment.CenterStart).padding(if (vertical) 18.dp else 20.dp).size(30.dp))
-        if (!vertical) Text(a.value, style = t(18f, if (local > 0.85f) Color(0xFF15171A) else C.Text, FontWeight.Medium),
+        if (!vertical) Text("$pct%", style = t(18f, if (local > 0.85f) Color(0xFF15171A) else C.Text, FontWeight.Medium),
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 20.dp))
-        else Text(a.value, style = t(14f, if (local > 0.9f) Color(0xFF15171A) else C.Text2, FontWeight.Medium), modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp))
+        else Text("$pct%", style = t(14f, if (local > 0.9f) Color(0xFF15171A) else C.Text2, FontWeight.Medium), modifier = Modifier.align(Alignment.TopCenter).padding(top = 14.dp))
     }
 }
 
@@ -412,7 +420,16 @@ private fun tileAction(s: LauncherState, tile: TileSpec): TileState {
         "volume" -> {
             val am = ctx.getSystemService(AudioManager::class.java)
             val cur = am.getStreamVolume(AudioManager.STREAM_MUSIC); val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-            TileState("${cur * 100 / max}%", fraction = cur.toFloat() / max, set = { f -> am.setStreamVolume(AudioManager.STREAM_MUSIC, (f * max).roundToInt().coerceIn(0, max), 0) })
+            TileState("${cur * 100 / max}%", fraction = cur.toFloat() / max, set = { f ->
+                val target = (f * max).roundToInt().coerceIn(0, max)
+                // TEYES часто игнорирует абсолютную установку — сначала пробуем её, потом добираем шагами (как физические +/-)
+                runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0) }
+                var c = am.getStreamVolume(AudioManager.STREAM_MUSIC); var guard = 0
+                while (c != target && guard++ <= max + 1) {
+                    am.adjustStreamVolume(AudioManager.STREAM_MUSIC, if (c < target) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, 0)
+                    val n = am.getStreamVolume(AudioManager.STREAM_MUSIC); if (n == c) break; c = n
+                }
+            })
         }
         "brightness" -> {
             if (!Settings.System.canWrite(ctx)) TileState("Нужно разрешение", "нажмите, чтобы выдать", onClick = {
