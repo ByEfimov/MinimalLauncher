@@ -535,7 +535,8 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
     }
     // нажали на карту (под панелью) — прячем клавиатуру, чтобы было видно карту
     LaunchedEffect(s.nav.tapTarget) { if (s.nav.tapTarget != null) hideKeyboard() }
-    DisposableEffect(Unit) { onDispose { s.nav.clearPins() } }
+    // ВАЖНО: не чистим точку/маркеры в onDispose — иначе выбор места из поиска сразу бы стирался
+    // (поиск закрывается, чтобы показать карточку слева). Чистим только при явном закрытии поиска.
 
     // поиск по мере набора (с задержкой) → список + маркеры на карте
     LaunchedEffect(query) {
@@ -569,7 +570,7 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
                 .padding(horizontal = 28.dp, vertical = 24.dp)
         ) {
-            OverlayHeader(if (setHome) "Адрес дома" else "Куда едем?") { s.overlay = null }
+            OverlayHeader(if (setHome) "Адрес дома" else "Куда едем?") { s.nav.clearPins(); s.overlay = null }
             Spacer(Modifier.height(12.dp))
             androidx.compose.material3.TextField(
                 value = query, onValueChange = { query = it },

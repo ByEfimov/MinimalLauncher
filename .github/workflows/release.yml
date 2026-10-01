@@ -68,13 +68,14 @@ jobs:
           if [ -z "$YATOKEN" ]; then echo "YANDEX_DISK_TOKEN не задан — пропускаю"; exit 0; fi
           FILE="MinimalDrive-$VERSION.apk"
           AUTH="Authorization: OAuth $YATOKEN"
-          curl -s -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive" >/dev/null || true
-          curl -s -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/publish?path=%2FMinimalDrive" >/dev/null || true
-          HREF=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/upload?path=%2FMinimalDrive%2F$FILE&overwrite=true" | python3 -c "import sys,json;print(json.load(sys.stdin).get('href',''))")
-          if [ -n "$HREF" ]; then curl -s -X PUT -T "$FILE" "$HREF" && echo "Залито на Яндекс.Диск: /MinimalDrive/$FILE"; fi
-          PUBLIC_URL=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive&fields=public_url" | python3 -c "import sys,json;print(json.load(sys.stdin).get('public_url',''))")
-          echo "PUBLIC_URL: $PUBLIC_URL"
-          # публикуем ссылку публичной папки как ассет релиза, чтобы её можно было прочитать
-          printf '{"public_url":"%s"}' "$PUBLIC_URL" > yadisk.json
+          MK=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive")
+          PUB=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/publish?path=%2FMinimalDrive")
+          UP=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/upload?path=%2FMinimalDrive%2F$FILE&overwrite=true")
+          HREF=$(echo "$UP" | python3 -c "import sys,json;print(json.load(sys.stdin).get('href',''))" 2>/dev/null)
+          UPC=""
+          if [ -n "$HREF" ]; then UPC=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -T "$FILE" "$HREF"); fi
+          META=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive&fields=public_url")
+          PUBLIC_URL=$(echo "$META" | python3 -c "import sys,json;print(json.load(sys.stdin).get('public_url',''))" 2>/dev/null)
+          printf '{"public_url":"%s","mkdir":"%s","publish":"%s","upload":"%s"}' "$PUBLIC_URL" "$MK" "$PUB" "$UPC" > yadisk.json
+          cat yadisk.json
           gh release upload "v$VERSION" yadisk.json --clobber || true
-        # gh авторизуется через GITHUB_TOKEN ниже
