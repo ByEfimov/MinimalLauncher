@@ -23,6 +23,8 @@ android {
         // TEYES CC3 is ARM; skip x86 MapKit libraries to keep the APK small
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "UPDATE_REPO", "\"${(project.findProperty("updateRepo") as String?) ?: ""}\"")
+        // Публичная папка Яндекс.Диска с релизами (белый список РФ) — запасной источник обновлений
+        buildConfigField("String", "UPDATE_YADISK", "\"${(project.findProperty("updateYandexDisk") as String?) ?: ""}\"")
         buildConfigField("String", "ACTIVATION_URL", "\"${(project.findProperty("activationUrl") as String?) ?: ""}\"")
         // Прокси на Yandex Cloud (белый список РФ): погода + ограничения скорости. Пусто → без прокси.
         buildConfigField("String", "PROXY_URL", "\"${(project.findProperty("proxyUrl") as String?) ?: ""}\"")

@@ -42,23 +42,13 @@ class Updater(private val ctx: Context) {
 
     fun check(silent: Boolean = false) {
         val repo = BuildConfig.UPDATE_REPO
-        if (repo.isBlank() || busy) return
+        if ((repo.isBlank() && BuildConfig.UPDATE_YADISK.isBlank()) || busy) return
         busy = true
         if (!silent) status = "Проверка…"
         io.execute {
-            val result = runCatching {
-                val c = URL("https://api.github.com/repos/$repo/releases/latest").openConnection() as HttpURLConnection
-                c.connectTimeout = 8000; c.readTimeout = 10000
-                c.setRequestProperty("Accept", "application/vnd.github+json")
-                val body = c.inputStream.bufferedReader().use { it.readText() }
-                c.disconnect()
-                val j = JSONObject(body)
-                val tag = j.getString("tag_name").removePrefix("v")
-                val assets = j.getJSONArray("assets")
-                val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
-                    .firstOrNull { it.getString("name").endsWith(".apk") }?.getString("browser_download_url")
-                    ?: error("в релизе нет APK")
-                Release(tag, apk, j.optString("body"))
+            // GitHub — основной источник; если недоступен (белый список РФ) — Яндекс.Диск (yandex-домены).
+            val result = checkGithub(repo).recoverCatching { gh ->
+                checkYandexDisk() ?: throw gh
             }
             main.post {
                 busy = false
@@ -69,6 +59,48 @@ class Updater(private val ctx: Context) {
                 }.onFailure { if (!silent) status = "Не удалось проверить: ${it.message}" }
             }
         }
+    }
+
+    private fun checkGithub(repo: String): Result<Release> = runCatching {
+        if (repo.isBlank()) error("GitHub не задан")
+        val c = URL("https://api.github.com/repos/$repo/releases/latest").openConnection() as HttpURLConnection
+        c.connectTimeout = 8000; c.readTimeout = 10000
+        c.setRequestProperty("Accept", "application/vnd.github+json")
+        val body = c.inputStream.bufferedReader().use { it.readText() }
+        c.disconnect()
+        val j = JSONObject(body)
+        val tag = j.getString("tag_name").removePrefix("v")
+        val assets = j.getJSONArray("assets")
+        val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
+            .firstOrNull { it.getString("name").endsWith(".apk") }?.getString("browser_download_url")
+            ?: error("в релизе нет APK")
+        Release(tag, apk, j.optString("body"))
+    }
+
+    /** Запасной источник: публичная папка Яндекс.Диска (yandex-домены, белый список РФ). Берём APK с наибольшей версией. */
+    private fun checkYandexDisk(): Release? {
+        val pub = BuildConfig.UPDATE_YADISK.trim()
+        if (pub.isBlank()) return null
+        return runCatching {
+            val api = "https://cloud-api.yandex.net/v1/disk/public/resources?public_key=" +
+                java.net.URLEncoder.encode(pub, "UTF-8") +
+                "&limit=300&sort=-name&fields=_embedded.items.name,_embedded.items.file"
+            val c = URL(api).openConnection() as HttpURLConnection
+            c.connectTimeout = 8000; c.readTimeout = 10000
+            c.setRequestProperty("Accept", "application/json")
+            if (c.responseCode != 200) { c.disconnect(); return null }
+            val body = c.inputStream.bufferedReader().use { it.readText() }; c.disconnect()
+            val items = JSONObject(body).optJSONObject("_embedded")?.optJSONArray("items") ?: return null
+            var best: Release? = null
+            for (i in 0 until items.length()) {
+                val o = items.getJSONObject(i)
+                val name = o.optString("name"); val file = o.optString("file")
+                if (!name.endsWith(".apk") || file.isBlank()) continue
+                val ver = Regex("(\\d+\\.\\d+\\.\\d+)").find(name)?.groupValues?.get(1) ?: continue
+                if (best == null || newer(ver, best!!.version)) best = Release(ver, file, "Обновление из Яндекс.Диска")
+            }
+            best
+        }.getOrNull()
     }
 
     fun install() {

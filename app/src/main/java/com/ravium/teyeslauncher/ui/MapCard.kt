@@ -119,25 +119,47 @@ fun flagBitmap(ctx: Context): Bitmap {
     return b
 }
 
-/** Teardrop pin for a search result (bottom tip points at the place). [strong] = the selected / tapped pin. */
+/**
+ * Чистая «капля»-метка: круглая голова с белым кольцом и остриём точно в координате.
+ * [strong] = выбранная/нажатая точка (красная, крупнее); иначе синий маркер результата поиска.
+ */
 fun pinBitmap(ctx: Context, strong: Boolean = false): Bitmap {
     val d = ctx.resources.displayMetrics.density
-    val w = (26 * d).toInt().coerceAtLeast(22); val h = (34 * d).toInt().coerceAtLeast(28)
+    val scale = if (strong) 1.18f else 1f
+    val w = (30 * d * scale).toInt().coerceAtLeast(24)
+    val h = (40 * d * scale).toInt().coerceAtLeast(32)
     val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val c = Canvas(b)
-    val cx = w / 2f; val r = w * 0.40f; val cy = r + h * 0.06f
-    val fill = if (strong) 0xFFFF4D5A.toInt() else 0xFF3D8BFF.toInt()
+    val cx = w / 2f
+    val r = w * 0.34f                  // радиус головы
+    val cy = r + h * 0.04f             // центр головы
+    val tipY = h - h * 0.05f           // остриё (на координате)
+    val top = if (strong) 0xFFFF5B6B.toInt() else 0xFF4E9BFF.toInt()
+    val bot = if (strong) 0xFFE8323F.toInt() else 0xFF2F7BF5.toInt()
+    // тень-«пятно» под остриём
+    c.drawOval(cx - r * 0.5f, tipY - r * 0.16f, cx + r * 0.5f, tipY + r * 0.10f,
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33000000 })
+    // форма капли: голова-круг + сходящийся к острию «хвост»
     val path = Path().apply {
-        moveTo(cx, h - h * 0.04f)
-        cubicTo(cx - r * 1.25f, cy + r * 0.9f, cx - r, cy - r * 0.2f, cx, cy - r)   // left side up to top
-        cubicTo(cx + r, cy - r * 0.2f, cx + r * 1.25f, cy + r * 0.9f, cx, h - h * 0.04f) // right side down to tip
+        val k = r * 0.78f
+        moveTo(cx, tipY)
+        cubicTo(cx - k, cy + r * 0.78f, cx - r, cy + r * 0.35f, cx - r, cy)
+        cubicTo(cx - r, cy - r * 1.33f, cx + r, cy - r * 1.33f, cx + r, cy)
+        cubicTo(cx + r, cy + r * 0.35f, cx + k, cy + r * 0.78f, cx, tipY)
         close()
     }
+    // белая обводка
     c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = fill; setShadowLayer(w * 0.08f, 0f, w * 0.04f, 0x55000000)
+        color = 0xFFFFFFFF.toInt(); style = Paint.Style.FILL_AND_STROKE; strokeWidth = w * 0.11f
+        strokeJoin = Paint.Join.ROUND; setShadowLayer(w * 0.09f, 0f, w * 0.03f, 0x4D000000)
     })
-    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); style = Paint.Style.STROKE; strokeWidth = w * 0.07f })
-    c.drawCircle(cx, cy, r * 0.42f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() })
+    // цветная заливка (вертикальный градиент)
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        shader = android.graphics.LinearGradient(cx, cy - r, cx, cy + r, top, bot, android.graphics.Shader.TileMode.CLAMP)
+    })
+    // белая серединка
+    c.drawCircle(cx, cy, r * 0.40f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() })
     return b
 }
 
@@ -222,9 +244,10 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
             Box(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 26.dp, end = 230.dp)) { RouteChip(s, r, s.nav.progress) }
         }
 
-        // tapped a point on the map → confirm a route there
+        // tapped a point on the map → во время поиска показываем плашку на карте;
+        // на главном экране данные показываются слева (вместо плеера), поэтому здесь не дублируем
         s.nav.tapTarget?.let { t ->
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)) { TapTargetChip(s, t) }
+            if (s.overlay != null) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)) { TapTargetChip(s, t) }
         }
 
         if (!YandexMaps.enabled) Text("© OpenStreetMap", style = TextStyle(fontSize = 10.sp, color = Color(0x99FFFFFF)),

@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material3.Icon
@@ -195,6 +196,9 @@ private fun VolumePopover(s: LauncherState) {
 /** Side column of the main screen: music stretches, the other blocks are 97 units tall (or share the height when there's no music). */
 @Composable
 private fun SideColumn(s: LauncherState, blocks: List<String>, modifier: Modifier) {
+    // выбрали точку на карте — показываем её карточку вместо плеера/панели (данные из Яндекса/OSM)
+    val tap = s.nav.tapTarget
+    if (tap != null && s.overlay == null && s.page == Page.HOME) { PlaceCard(s, tap, modifier); return }
     val hasMusic = "music" in blocks
     Column(modifier, verticalArrangement = Arrangement.spacedBy(15.dp)) {
         blocks.forEach { id ->
@@ -207,6 +211,59 @@ private fun SideColumn(s: LauncherState, blocks: List<String>, modifier: Modifie
             }
         }
         if (blocks.all { it == "service" }) Spacer(Modifier.weight(1f))
+    }
+}
+
+/** Карточка выбранной на карте точки (слева, вместо плеера): название, адрес из Яндекса, маршрут. */
+@Composable
+private fun PlaceCard(s: LauncherState, p: Place, modifier: Modifier) {
+    val dist = s.vehicle.location?.let {
+        val r = FloatArray(1); android.location.Location.distanceBetween(it.latitude, it.longitude, p.lat, p.lon, r)
+        if (r[0] >= 1000) "%.1f км".format(r[0] / 1000) else "${r[0].toInt()} м"
+    }
+    val fav = s.nav.isFavorite(p)
+    Column(modifier.clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(52.dp).clip(CircleShape).background(Color(0x33FF5B6B)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Place, null, tint = Color(0xFFFF6B75), modifier = Modifier.size(30.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            Box(Modifier.size(48.dp).clip(CircleShape).background(C.Card).border(Hairline, C.Stroke, CircleShape)
+                .clickable { s.nav.tapTarget = null }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Close, "Закрыть", tint = C.Text, modifier = Modifier.size(26.dp))
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Text(p.name, style = ts(26f, C.Text, FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(8.dp))
+        if (s.nav.tapLoading && p.description.isBlank())
+            Text("Загружаю данные…", style = ts(16f, C.Muted))
+        else if (p.description.isNotBlank())
+            Text(p.description, style = ts(17f, C.Muted), maxLines = 4, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(10.dp))
+        Text(buildString {
+            dist?.let { append("$it от вас") }
+            append(if (isEmpty()) "" else "  ·  ")
+            append("%.5f, %.5f".format(Locale.US, p.lat, p.lon))
+        }, style = ts(14f, C.Text2))
+        Spacer(Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.weight(1f).height(60.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
+                .clickable {
+                    s.nav.rememberRecent(p); val t = p; s.nav.tapTarget = null; s.nav.clearPins()
+                    s.nav.routeTo(t, s.vehicle.location)
+                }, contentAlignment = Alignment.Center) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Flag, null, tint = C.Text, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(10.dp)); Text("Маршрут сюда", style = ts(18f, C.Text, FontWeight.SemiBold))
+                }
+            }
+            Box(Modifier.size(60.dp).clip(CardShape).background(C.Card).border(Hairline, C.Stroke, CardShape)
+                .clickable { s.nav.toggleFavorite(p) }, contentAlignment = Alignment.Center) {
+                Icon(if (fav) Icons.Filled.Star else Icons.Outlined.StarOutline, "В избранное",
+                    tint = if (fav) C.Yellow else C.Text2, modifier = Modifier.size(26.dp))
+            }
+        }
     }
 }
 

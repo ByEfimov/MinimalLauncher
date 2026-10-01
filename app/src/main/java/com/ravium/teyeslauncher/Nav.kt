@@ -85,8 +85,8 @@ interface NavProvider {
     val name: String
     fun search(query: String, near: Location?, cb: (List<Place>) -> Unit, err: (String) -> Unit)
     fun route(from: Location, to: Place, cb: (Route) -> Unit, err: (String) -> Unit)
-    /** Адрес точки на карте (нажали по карте) — по координатам. Best-effort: пусто → остаётся «Точка на карте». */
-    fun reverse(lat: Double, lon: Double, cb: (String) -> Unit) {}
+    /** Данные о точке на карте (нажали по карте): название + адрес. Best-effort. */
+    fun reverse(lat: Double, lon: Double, cb: (name: String, address: String) -> Unit) {}
 }
 
 /**
@@ -138,16 +138,17 @@ object OsmNav : NavProvider {
         }
     }
 
-    override fun reverse(lat: Double, lon: Double, cb: (String) -> Unit) {
+    override fun reverse(lat: Double, lon: Double, cb: (name: String, address: String) -> Unit) {
         io.execute {
-            val name = runCatching {
+            runCatching {
                 val j = JSONObject(get("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&accept-language=ru&zoom=18"))
                 val a = j.optJSONObject("address")
                 val road = a?.optString("road").orEmpty()
                 val house = a?.optString("house_number").orEmpty()
-                listOf(road, house).filter { it.isNotBlank() }.joinToString(", ").ifBlank { j.optString("display_name").substringBefore(",") }
-            }.getOrDefault("")
-            if (name.isNotBlank()) main.post { cb(name) }
+                val full = j.optString("display_name")
+                val name = listOf(road, house).filter { it.isNotBlank() }.joinToString(", ").ifBlank { full.substringBefore(",") }
+                if (name.isNotBlank()) main.post { cb(name, full) }
+            }
         }
     }
 
@@ -279,15 +280,20 @@ class NavRepo(private val ctx: Context) {
 
     fun clearRecents() { recents = emptyList(); Prefs.put(ctx, Prefs.RECENT_PLACES, "[]") }
 
-    /** Нажали на карту: показать точку и адрес (запрашивается в фоне), ждём подтверждения маршрута. */
+    /** Идёт ли загрузка данных о точке (для карточки слева). */
+    var tapLoading by mutableStateOf(false)
+
+    /** Нажали на карту: показать точку и подтянуть её данные из Яндекса/OSM в фоне (карточка слева). */
     fun tapOnMap(lat: Double, lon: Double) {
         tapTarget = Place("Точка на карте", "", lat, lon)
+        tapLoading = true
         runCatching {
-            provider.reverse(lat, lon) { name ->
+            provider.reverse(lat, lon) { name, address ->
                 val t = tapTarget
-                if (t != null && t.lat == lat && t.lon == lon) tapTarget = t.copy(name = name)
+                if (t != null && t.lat == lat && t.lon == lon) tapTarget = t.copy(name = name.ifBlank { "Точка на карте" }, description = address)
+                tapLoading = false
             }
-        }
+        }.onFailure { tapLoading = false }
     }
 
     /** Скрыть маркеры результатов и нажатую точку (поиск закрыт). */

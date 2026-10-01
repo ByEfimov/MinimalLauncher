@@ -105,12 +105,13 @@ private class YandexNav : NavProvider {
     }
 
     private var reverseSession: Session? = null
-    override fun reverse(lat: Double, lon: Double, cb: (String) -> Unit) {
-        reverseSession = search.submit(Point(lat, lon), 18, SearchOptions().setSearchTypes(SearchType.GEO.value), object : Session.SearchListener {
+    override fun reverse(lat: Double, lon: Double, cb: (name: String, address: String) -> Unit) {
+        reverseSession = search.submit(Point(lat, lon), 18, SearchOptions().setSearchTypes(SearchType.GEO.value or SearchType.BIZ.value), object : Session.SearchListener {
             override fun onSearchResponse(r: Response) {
                 val o = r.collection.children.firstOrNull()?.obj
-                val name = o?.name ?: o?.descriptionText ?: ""
-                if (name.isNotBlank()) cb(name)
+                val name = o?.name ?: ""
+                val addr = o?.descriptionText ?: ""
+                if (name.isNotBlank() || addr.isNotBlank()) cb(name.ifBlank { addr }, addr)
             }
             override fun onSearchError(e: Error) {}
         })
