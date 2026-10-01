@@ -194,7 +194,7 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
                 else StatusChip(s.updater.status)
             }
             when {
-                s.nav.busy && s.nav.route == null -> StatusChip("Строю маршрут…")
+                s.nav.busy && s.nav.route == null -> Box(Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xD9101315)).padding(horizontal = 14.dp, vertical = 10.dp)) { LoaderRow("Строю маршрут…", textColor = C.Text2) }
                 s.nav.message != null -> StatusChip(s.nav.message!!) { s.nav.message = null }
                 s.vehicle.location == null -> StatusChip(if (!s.vehicle.hasPermission) "Нет доступа к геопозиции" else "Поиск GPS…")
                 route != null && !s.status.online -> StatusChip("Нет интернета — веду по GPS, маршрут сохранён")
@@ -255,14 +255,14 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
 @Composable
 private fun RoundButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        modifier.size(56.dp).clip(CircleShape).background(Color(0xB3101315)).border(Hairline, Color(0x33FFFFFF), CircleShape).clickable(onClick = onClick),
+        modifier.size(56.dp).clip(CircleShape).background(Color(0xB3101315)).border(Hairline, Color(0x33FFFFFF), CircleShape).bounceClick(onClick = onClick),
         contentAlignment = Alignment.Center
     ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(26.dp)) }
 }
 
 @Composable
 private fun PillIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Box(Modifier.size(width = 62.dp, height = 56.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(width = 62.dp, height = 56.dp).bounceClick(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(27.dp))
     }
 }

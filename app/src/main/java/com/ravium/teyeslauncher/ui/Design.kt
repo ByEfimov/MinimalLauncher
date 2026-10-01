@@ -3,6 +3,12 @@ package com.ravium.teyeslauncher.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
@@ -18,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -83,10 +90,90 @@ val Inter = FontFamily(
 
 val CardShape = RoundedCornerShape(16.dp)
 
+/**
+ * Приятная «пружинка» при нажатии: элемент слегка уменьшается под пальцем и упруго возвращается.
+ * Отключается в тестах (InstantUi). Заменяет обычный .clickable без ряби.
+ */
+@Composable
+fun Modifier.bounceClick(enabled: Boolean = true, scaleDown: Float = 0.94f, onClick: () -> Unit): Modifier {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        if (pressed && !InstantUi) scaleDown else 1f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = androidx.compose.animation.core.Spring.StiffnessMedium),
+        label = "bounce",
+    )
+    return this
+        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
+}
+
+/**
+ * Мягкое появление: лёгкий «наезд» (scale) + проявление. Для карточек/плашек, которые всплывают.
+ * Возвращает alpha/scale, которые нужно повесить на graphicsLayer. Отключено в тестах.
+ */
+@Composable
+fun rememberAppear(key: Any? = Unit, fromScale: Float = 0.92f): Pair<Float, Float> {
+    if (InstantUi) return 1f to 1f
+    var shown by remember(key) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(key) { shown = true }
+    val alpha by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else 0f,
+        androidx.compose.animation.core.tween(220), label = "appearA")
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else fromScale,
+        androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow), label = "appearS")
+    return alpha to scale
+}
+
 /** Exactly one physical pixel. The UI is scaled to the screen, so "1.dp" would be a blurry 0.9–1.2 px line. */
 val Hairline: androidx.compose.ui.unit.Dp
     @Composable get() = with(androidx.compose.ui.platform.LocalDensity.current) { 1f.toDp() }
 val CardBrush = Brush.verticalGradient(listOf(C.Card, C.CardBottom))
+
+/**
+ * Необычный лёгкий лоадер: цепочка точек «перекатывается» волной (синус со сдвигом фазы),
+ * меняя высоту и яркость. Один infiniteTransition, рисуется в Canvas — дёшево.
+ */
+@Composable
+fun DotWaveLoader(
+    modifier: Modifier = Modifier,
+    color: Color = C.Yellow,
+    dot: Dp = 7.dp,
+    dots: Int = 4,
+) {
+    val amp = dot * 0.7f
+    if (InstantUi) {
+        androidx.compose.foundation.layout.Row(modifier, verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(dot * 0.55f)) {
+            repeat(dots) { Box(Modifier.size(dot).clip(CircleShape).background(color)) }
+        }
+        return
+    }
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "loader")
+    val p by t.animateFloat(0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "p")
+    Canvas(modifier.size(width = dot * (dots * 1.7f), height = dot + amp * 2)) {
+        val r = dot.toPx() / 2f
+        val step = size.width / dots
+        for (i in 0 until dots) {
+            val phase = (p - i * 0.16f) * 2f * Math.PI.toFloat()
+            val s = kotlin.math.sin(phase)                 // -1..1
+            val cy = size.height / 2f - s * amp.toPx()
+            val a = 0.35f + 0.65f * ((s + 1f) / 2f)
+            drawCircle(color.copy(alpha = a), r, Offset(step * i + step / 2f, cy))
+        }
+    }
+}
+
+/** Строка «лоадер + текст» для состояний загрузки. */
+@Composable
+fun LoaderRow(text: String, modifier: Modifier = Modifier, color: Color = C.Yellow, textColor: Color = C.Muted) {
+    androidx.compose.foundation.layout.Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        DotWaveLoader(color = color)
+        androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
+        androidx.compose.material3.Text(text, style = androidx.compose.ui.text.TextStyle(fontFamily = Inter, fontSize = 16.sp, color = textColor))
+    }
+}
 
 // ---------- custom glyphs (drawn to match the mockup) ----------
 

@@ -35,6 +35,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -302,8 +303,12 @@ private fun TileView(s: LauncherState, tile: TileSpec, tick: Int, edit: Boolean,
     val def = TileCatalog.def(tile.type) ?: return
     val v = s.settingsVersion
     val a = remember(tile, v, tick) { tileAction(s, tile) }
-    Box(Modifier.fillMaxSize().glass()
-        .combinedClickable(enabled = !edit, onClick = { a.onClick?.invoke() }, onLongClick = {})) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed && !edit && !InstantUi) 0.96f else 1f,
+        spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium), label = "tilePress")
+    Box(Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale }.glass()
+        .combinedClickable(interactionSource = interaction, indication = null, enabled = !edit, onClick = { a.onClick?.invoke() }, onLongClick = {})) {
         if (a.set != null) SliderTile(def, a, tile, edit)
         else Box(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp)) { TileContent(s, tile, def, a, tick) }
         if (edit) {

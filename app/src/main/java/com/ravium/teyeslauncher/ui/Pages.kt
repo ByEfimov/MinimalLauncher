@@ -55,7 +55,7 @@ internal fun InputField(value: String, onChange: (String) -> Unit, placeholder: 
 @Composable
 internal fun PrimaryButton(label: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     Box(modifier.fillMaxWidth().height(60.dp).clip(CardShape).background(if (enabled) C.YellowBg else C.Card)
-        .border(1.5.dp, if (enabled) C.YellowBorder else C.Stroke, CardShape).clickable(enabled = enabled, onClick = onClick),
+        .border(1.5.dp, if (enabled) C.YellowBorder else C.Stroke, CardShape).bounceClick(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center) { Text(label, style = t(18f, if (enabled) C.Text else C.Muted, FontWeight.Medium)) }
 }
 
@@ -69,13 +69,13 @@ internal fun ProgressLine(fraction: Float, color: Color, modifier: Modifier = Mo
 @Composable
 internal fun SmallButton(label: String, onClick: () -> Unit) {
     Box(Modifier.height(44.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1B1E21)).border(Hairline, C.Stroke, RoundedCornerShape(12.dp))
-        .clickable(onClick = onClick).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Text(label, style = t(15f, C.Text2, FontWeight.Medium)) }
+        .bounceClick(onClick = onClick).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) { Text(label, style = t(15f, C.Text2, FontWeight.Medium)) }
 }
 
 @Composable
 internal fun IconButtonBox(icon: ImageVector, size: Int = 44, tint: Color = C.Text2, onClick: () -> Unit) {
     Box(Modifier.size(size.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF1B1E21)).border(Hairline, C.Stroke, RoundedCornerShape(12.dp))
-        .clickable(onClick = onClick), contentAlignment = Alignment.Center) { Icon(icon, null, tint = tint, modifier = Modifier.size((size * 0.5f).dp)) }
+        .bounceClick(onClick = onClick), contentAlignment = Alignment.Center) { Icon(icon, null, tint = tint, modifier = Modifier.size((size * 0.5f).dp)) }
 }
 
 internal fun weatherIconFor(code: Int): ImageVector = when (code) {
@@ -236,7 +236,11 @@ fun WeatherScreen(s: LauncherState) {
         val f = fc
         if (f == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(when { loc == null -> "Нет GPS-позиции — погода появится, когда найдутся спутники"; failed -> "Нет интернета"; else -> "Загрузка…" }, style = t(20f, C.Muted))
+                when {
+                    loc == null -> Text("Нет GPS-позиции — погода появится, когда найдутся спутники", style = t(20f, C.Muted))
+                    failed -> Text("Нет интернета", style = t(20f, C.Muted))
+                    else -> LoaderRow("Загружаю погоду…", color = C.Yellow, textColor = C.Text2)
+                }
             }
             return@Column
         }

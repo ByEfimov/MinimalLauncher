@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -157,8 +158,10 @@ private fun VolumePopover(s: LauncherState) {
         }
     }
     // клик вне плашки — закрыть
+    val (alpha, scale) = rememberAppear()
     Box(Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { s.volumePanel = false }) {
         Box(Modifier.align(Alignment.TopEnd).padding(top = 112.dp, end = 30.dp)
+            .graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.9f, 0f) }
             .width(360.dp).clip(RoundedCornerShape(22.dp)).background(Color(0xF21A1D20)).border(Hairline, Color(0x33FFFFFF), RoundedCornerShape(22.dp))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
             .padding(20.dp)) {
@@ -222,7 +225,9 @@ private fun PlaceCard(s: LauncherState, p: Place, modifier: Modifier) {
         if (r[0] >= 1000) "%.1f км".format(r[0] / 1000) else "${r[0].toInt()} м"
     }
     val fav = s.nav.isFavorite(p)
-    Column(modifier.clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(24.dp)) {
+    val (alpha, scale) = rememberAppear(key = p.lat to p.lon)
+    Column(modifier.graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale }
+        .clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(52.dp).clip(CircleShape).background(Color(0x33FF5B6B)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Place, null, tint = Color(0xFFFF6B75), modifier = Modifier.size(30.dp))
@@ -237,12 +242,12 @@ private fun PlaceCard(s: LauncherState, p: Place, modifier: Modifier) {
         Text(p.name, style = ts(26f, C.Text, FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(10.dp))
         // время в пути (как в карточке Яндекса); пока считается — показываем расстояние по прямой
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        val eta = s.nav.placeEta
+        if (eta != null) Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.Navigation, null, tint = C.Yellow, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
-            Text(s.nav.placeEta ?: (dist?.let { "$it · считаю время…" } ?: "Считаю время в пути…"),
-                style = ts(19f, C.Text, FontWeight.Medium))
-        }
+            Text(eta, style = ts(19f, C.Text, FontWeight.Medium))
+        } else LoaderRow(dist?.let { "$it · считаю время…" } ?: "Считаю время в пути…", textColor = C.Text2)
         if (s.nav.placeOrgs.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
             Text("Здесь находятся", style = ts(14f, C.Muted))
@@ -641,12 +646,16 @@ private fun BottomBar(s: LauncherState, modifier: Modifier) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RowScope.NavItem(selected: Boolean, onClick: () -> Unit, onLongClick: (() -> Unit)? = null, icon: @Composable () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (pressed && !InstantUi) 0.82f else 1f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.4f, stiffness = androidx.compose.animation.core.Spring.StiffnessMedium), label = "nav")
     Box(
-        Modifier.weight(1f).fillMaxHeight().combinedClickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
+        Modifier.weight(1f).fillMaxHeight().combinedClickable(interactionSource = interaction, indication = null,
             onClick = onClick, onLongClick = onLongClick),
         contentAlignment = Alignment.Center
     ) {
-        icon()
+        Box(Modifier.graphicsLayer { scaleX = scale; scaleY = scale }) { icon() }
         if (selected) Box(Modifier.offset(y = 25.dp).width(45.dp).height(3.dp).background(Color.White, RoundedCornerShape(2.dp)))
     }
 }

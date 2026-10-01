@@ -118,7 +118,7 @@ internal fun OverlayHeader(title: String, action: (@Composable RowScope.() -> Un
 @Composable
 internal fun Pill(label: String, onClick: () -> Unit) {
     Box(Modifier.height(56.dp).clip(RoundedCornerShape(28.dp)).background(C.Card).border(Hairline, C.Stroke, RoundedCornerShape(28.dp))
-        .clickable(onClick = onClick).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) { Text(label, style = t(16f, C.Text2, FontWeight.Medium)) }
+        .bounceClick(onClick = onClick).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) { Text(label, style = t(16f, C.Text2, FontWeight.Medium)) }
 }
 
 // ============================ APPS ============================
@@ -592,7 +592,7 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { hideKeyboard() }),
             )
-            if (loading) Text("Ищу…", style = t(16f, C.Muted), modifier = Modifier.padding(top = 10.dp, start = 6.dp))
+            if (loading) LoaderRow("Ищу места…", modifier = Modifier.padding(top = 12.dp, start = 6.dp))
             error?.let { Text(it, style = t(16f, C.GuideRed), modifier = Modifier.padding(top = 10.dp, start = 6.dp)) }
             Spacer(Modifier.height(10.dp))
             androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
