@@ -178,10 +178,7 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
             if (!ctl.following && SystemClock.elapsedRealtime() - ctl.lastTouch > 12_000) ctl.following = true
         }
     }
-    // new destination → short overview of the whole route
-    val dest = s.nav.route?.destination
-    LaunchedEffect(dest) { if (dest != null) ctl.overview() }
-
+    // камеру при новом маршруте не трогаем — продолжаем вести за машиной (без отъезда на весь маршрут)
     Box(modifier.clip(CardShape).background(Color(0xFF111315)).border(Hairline, C.Stroke, CardShape)) {
         if (YandexMaps.enabled) YandexLayer(s, ctl, Modifier.fillMaxSize()) else OsmLayer(s, ctl, Modifier.fillMaxSize())
 
@@ -448,8 +445,7 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
     val lite = remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }
     var lastCam by remember { mutableStateOf(0L) }
     var camAt by remember { mutableStateOf<GeoPoint?>(null) }
-    var zoomedOnce by remember { mutableStateOf(false) }
-    var lastFitDest by remember { mutableStateOf<Place?>(null) }
+    var zoomLvl by remember { mutableStateOf(16.0) }
     val car = remember { CarOverlay(carArrowBitmap(ctx)) }
     val flag = remember { FlagOverlay(flagBitmap(ctx)) }
     val pins = remember { PinsOverlay(pinBitmap(ctx), pinBitmap(ctx, strong = true)) }
@@ -482,8 +478,8 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
             overlayManager.tilesOverlay.loadingLineColor = 0xFFE9E9E9.toInt()
             // tap on the map → offer a route to that point
             overlays.add(MapEventsOverlay(object : MapEventsReceiver {
-                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { s.nav.tapOnMap(p.latitude, p.longitude); return true }
-                override fun longPressHelper(p: GeoPoint): Boolean { s.nav.tapOnMap(p.latitude, p.longitude); return true }
+                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { s.nav.tapOnMap(p.latitude, p.longitude, s.vehicle.location); return true }
+                override fun longPressHelper(p: GeoPoint): Boolean { s.nav.tapOnMap(p.latitude, p.longitude, s.vehicle.location); return true }
             }))
             overlays.add(line); overlays.add(flag); overlays.add(pins); overlays.add(car)
             setOnTouchListener { _, e ->
@@ -498,14 +494,20 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
         pins.strong = (s.nav.tapTarget ?: s.nav.selectedPin)?.let { GeoPoint(it.lat, it.lon) }
         map.invalidate()
     }
-    // when results arrive while searching, frame them
+    // выбрали точку (тап по карте или адрес из поиска) — показать её
+    LaunchedEffect(s.nav.tapTarget?.lat, s.nav.tapTarget?.lon) {
+        val t = s.nav.tapTarget ?: return@LaunchedEffect
+        ctl.following = false
+        map.post { runCatching { if (map.zoomLevelDouble < 15.0) map.controller.setZoom(16.0); map.controller.animateTo(GeoPoint(t.lat, t.lon)) } }
+    }
+    // when results arrive while searching, frame the RESULTS (не машину — она может быть далеко)
     val searching = s.overlay is com.ravium.teyeslauncher.Overlay.Search
     LaunchedEffect(s.nav.pins, searching) {
-        if (searching && s.nav.pins.size >= 1) {
+        if (searching && s.nav.pins.isNotEmpty()) {
             ctl.following = false
-            val gps = s.nav.pins.map { GeoPoint(it.lat, it.lon) } + listOfNotNull(s.vehicle.location?.let { GeoPoint(it.latitude, it.longitude) })
-            if (gps.size >= 2) map.post { runCatching { map.zoomToBoundingBox(BoundingBox.fromGeoPoints(gps).increaseByScale(1.4f), true, 80) } }
-            else map.post { runCatching { map.controller.animateTo(gps.first()); if (map.zoomLevelDouble < 14.0) map.controller.setZoom(15.0) } }
+            val gps = s.nav.pins.map { GeoPoint(it.lat, it.lon) }
+            if (gps.size >= 2) map.post { runCatching { map.zoomToBoundingBox(BoundingBox.fromGeoPoints(gps).increaseByScale(1.5f), true, 90) } }
+            else map.post { runCatching { map.controller.setZoom(16.0); map.controller.animateTo(gps.first()) } }
         }
     }
     LaunchedEffect(style) { map.overlayManager.tilesOverlay.setColorFilter(if (style == "light") null else OsmTiles.darkFilter); map.invalidate() }
@@ -528,17 +530,9 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
     // route line
     val route = s.nav.route
     LaunchedEffect(route) {
+        // Только рисуем линию и флаг — камеру НЕ трогаем: не отъезжаем на весь маршрут, продолжаем вести за машиной.
         line.setPoints(route?.points?.map { GeoPoint(it[0], it[1]) } ?: emptyList())
         flag.point = route?.let { GeoPoint(it.destination.lat, it.destination.lon) }
-        // Показываем весь маршрут только когда задан НОВЫЙ пункт назначения, а не на каждом пересчёте —
-        // иначе карта сама дёргает масштаб при обновлении маршрута.
-        if (route != null && route.points.size > 1 && route.destination != lastFitDest) {
-            lastFitDest = route.destination
-            map.mapOrientation = 0f
-            runCatching { map.setMapCenterOffset(0, 0) }
-            val bb = BoundingBox.fromGeoPoints(route.points.map { GeoPoint(it[0], it[1]) })
-            map.post { runCatching { map.zoomToBoundingBox(bb.increaseByScale(1.25f), true, 60) } }
-        } else if (route == null) lastFitDest = null
         map.invalidate()
     }
 
@@ -557,12 +551,16 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
         val due = now - lastCam > (if (lite) 1500 else 900) && (speed >= 5 || moved > 25)
         if (ctl.following && (due || camAt == null)) {
             lastCam = now; camAt = gp
+            // авто-зум по скорости с гистерезисом (на трассе дальше, в городе ближе)
+            zoomLvl = when {
+                speed > 95 -> 14.0; speed < 80 && zoomLvl == 14.0 -> 15.0
+                speed > 50 && zoomLvl == 16.0 -> 15.0; speed < 35 && zoomLvl == 15.0 -> 16.0
+                else -> zoomLvl
+            }
             if (headingUp && speed >= 8) map.mapOrientation = -s.vehicle.bearing
             else if (!headingUp) map.mapOrientation = 0f
             runCatching { map.setMapCenterOffset(0, if (headingUp) (map.height * 0.22).toInt() else 0) }
-            // масштаб НЕ меняем сами — только центрируемся. Начальный зум ставим один раз.
-            if (!zoomedOnce) { zoomedOnce = true; map.controller.setZoom(16.0) }
-            if (lite || speed < 5) map.controller.setCenter(gp) else map.controller.animateTo(gp)
+            if (lite || speed < 5) { map.controller.setZoom(zoomLvl); map.controller.setCenter(gp) } else map.controller.animateTo(gp, zoomLvl, 850L)
         }
         map.invalidate()
     }
@@ -582,21 +580,20 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
     val traffic = remember(v) { Prefs.bool(ctx, Prefs.MAP_TRAFFIC, true) } && !lite
     var lastCam by remember { mutableStateOf(0L) }
     var yCamAt by remember { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
-    var zoomedOnce by remember { mutableStateOf(false) }
-    var lastFitDest by remember { mutableStateOf<Place?>(null) }
+    var yZoom by remember { mutableStateOf(16.5f) }
     var yAzimuth by remember { mutableStateOf(0f) }
 
     val mv = remember { com.yandex.mapkit.mapview.MapView(ctx) }
     val map = mv.mapWindow.map
     val trafficLayer = remember { com.yandex.mapkit.MapKitFactory.getInstance().createTrafficLayer(mv.mapWindow) }
-    val car = remember {
-        map.mapObjects.addPlacemark().apply {
-            setIcon(com.yandex.runtime.image.ImageProvider.fromBitmap(carArrowBitmap(ctx)),
-                com.yandex.mapkit.map.IconStyle().setAnchor(PointF(0.5f, 0.5f)).setFlat(true)
-                    .setRotationType(com.yandex.mapkit.map.RotationType.ROTATE).setZIndex(20f))
-            isVisible = false
+    // родная «стрелка» положения Яндекса (встроенная иконка, без анкера — камеру ведём сами)
+    val userLayer = remember {
+        com.yandex.mapkit.MapKitFactory.getInstance().createUserLocationLayer(mv.mapWindow).apply {
+            setVisible(true)
+            runCatching { javaClass.getMethod("setHeadingEnabled", Boolean::class.javaPrimitiveType).invoke(this, true) }
         }
     }
+    userLayer
     val flag = remember {
         map.mapObjects.addPlacemark().apply {
             setIcon(com.yandex.runtime.image.ImageProvider.fromBitmap(flagBitmap(ctx)),
@@ -618,8 +615,8 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
     // tap on the map → offer a route to that point
     val inputListener = remember {
         object : com.yandex.mapkit.map.InputListener {
-            override fun onMapTap(map: com.yandex.mapkit.map.Map, p: com.yandex.mapkit.geometry.Point) { s.nav.tapOnMap(p.latitude, p.longitude) }
-            override fun onMapLongTap(map: com.yandex.mapkit.map.Map, p: com.yandex.mapkit.geometry.Point) { s.nav.tapOnMap(p.latitude, p.longitude) }
+            override fun onMapTap(map: com.yandex.mapkit.map.Map, p: com.yandex.mapkit.geometry.Point) { s.nav.tapOnMap(p.latitude, p.longitude, s.vehicle.location) }
+            override fun onMapLongTap(map: com.yandex.mapkit.map.Map, p: com.yandex.mapkit.geometry.Point) { s.nav.tapOnMap(p.latitude, p.longitude, s.vehicle.location) }
         }
     }
     DisposableEffect(Unit) {
@@ -642,18 +639,27 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
             } }
         }
     }
-    // frame the results when they arrive while searching
+    // выбрали точку (тап по карте или адрес из поиска) — показать её
+    LaunchedEffect(s.nav.tapTarget?.lat, s.nav.tapTarget?.lon) {
+        val t = s.nav.tapTarget ?: return@LaunchedEffect
+        ctl.following = false
+        runCatching {
+            val z = maxOf(map.cameraPosition.zoom, 16f)
+            map.move(com.yandex.mapkit.map.CameraPosition(com.yandex.mapkit.geometry.Point(t.lat, t.lon), z, 0f, 0f),
+                com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.5f), null)
+        }
+    }
+    // frame the RESULTS when they arrive while searching (не включаем машину — она может быть за тысячи км)
     LaunchedEffect(s.nav.pins, searching) {
         if (searching && s.nav.pins.isNotEmpty()) {
             ctl.following = false
-            val pts = s.nav.pins.map { com.yandex.mapkit.geometry.Point(it.lat, it.lon) } +
-                listOfNotNull(s.vehicle.location?.let { com.yandex.mapkit.geometry.Point(it.latitude, it.longitude) })
+            val pts = s.nav.pins.map { com.yandex.mapkit.geometry.Point(it.lat, it.lon) }
             runCatching {
                 if (pts.size >= 2) {
                     val pos = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromPolyline(com.yandex.mapkit.geometry.Polyline(pts)))
-                    map.move(com.yandex.mapkit.map.CameraPosition(pos.target, (pos.zoom - 0.6f).coerceAtMost(16f), 0f, 0f),
+                    map.move(com.yandex.mapkit.map.CameraPosition(pos.target, (pos.zoom - 0.5f).coerceAtMost(16f), 0f, 0f),
                         com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.6f), null)
-                } else map.move(com.yandex.mapkit.map.CameraPosition(pts.first(), 15.5f, 0f, 0f),
+                } else map.move(com.yandex.mapkit.map.CameraPosition(pts.first(), 16f, 0f, 0f),
                     com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.6f), null)
             }
         }
@@ -697,16 +703,8 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
             }
             flag.geometry = com.yandex.mapkit.geometry.Point(route.destination.lat, route.destination.lon)
             flag.isVisible = true
-            // Показываем весь маршрут только для НОВОГО пункта назначения, не на каждом пересчёте.
-            if (route.destination != lastFitDest) {
-                lastFitDest = route.destination
-                runCatching {
-                    val pos = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromPolyline(pl))
-                    map.move(com.yandex.mapkit.map.CameraPosition(pos.target, pos.zoom - 0.6f, 0f, 0f),
-                        com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.8f), null)
-                }
-            }
-        } else { flag.isVisible = false; lastFitDest = null }
+            // камеру не двигаем — остаёмся на машине, не отъезжаем на весь маршрут
+        } else flag.isVisible = false
     }
 
     // follow
@@ -715,17 +713,19 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
         if (!ctl.following) yCamAt = null
         val loc = s.vehicle.location ?: return@LaunchedEffect
         val p = com.yandex.mapkit.geometry.Point(loc.latitude, loc.longitude)
-        car.geometry = p
-        car.direction = s.vehicle.bearing
-        car.isVisible = true
+        // положение рисует встроенный userLayer Яндекса; мы только ведём камеру
         val now = SystemClock.elapsedRealtime()
         val speed = s.vehicle.speedKmh
         val moved = yCamAt?.let { a -> FloatArray(1).also { r -> android.location.Location.distanceBetween(a.latitude, a.longitude, p.latitude, p.longitude, r) }[0] } ?: Float.MAX_VALUE
         val due = now - lastCam > (if (lite) 1500 else 900) && (speed >= 5 || moved > 25f)
         if (ctl.following && (due || yCamAt == null)) {
             lastCam = now; yCamAt = p
-            // масштаб НЕ меняем сами — берём текущий (пользовательский). Начальный зум задаём один раз.
-            val zoom = if (!zoomedOnce) { zoomedOnce = true; 16.5f } else map.cameraPosition.zoom
+            yZoom = when {
+                speed > 95 -> 14.5f; speed < 80 && yZoom == 14.5f -> 15.5f
+                speed > 50 && yZoom == 16.5f -> 15.5f; speed < 35 && yZoom == 15.5f -> 16.5f
+                else -> yZoom
+            }
+            val zoom = yZoom
             if (speed >= 8) yAzimuth = s.vehicle.bearing
             runCatching {
                 val w = mv.mapWindow.width(); val h = mv.mapWindow.height()

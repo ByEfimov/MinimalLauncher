@@ -229,23 +229,35 @@ private fun PlaceCard(s: LauncherState, p: Place, modifier: Modifier) {
             }
             Spacer(Modifier.weight(1f))
             Box(Modifier.size(48.dp).clip(CircleShape).background(C.Card).border(Hairline, C.Stroke, CircleShape)
-                .clickable { s.nav.tapTarget = null }, contentAlignment = Alignment.Center) {
+                .clickable { s.nav.clearPins() }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Close, "Закрыть", tint = C.Text, modifier = Modifier.size(26.dp))
             }
         }
         Spacer(Modifier.height(16.dp))
         Text(p.name, style = ts(26f, C.Text, FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(8.dp))
-        if (s.nav.tapLoading && p.description.isBlank())
-            Text("Загружаю данные…", style = ts(16f, C.Muted))
-        else if (p.description.isNotBlank())
-            Text(p.description, style = ts(17f, C.Muted), maxLines = 4, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(10.dp))
-        Text(buildString {
-            dist?.let { append("$it от вас") }
-            append(if (isEmpty()) "" else "  ·  ")
-            append("%.5f, %.5f".format(Locale.US, p.lat, p.lon))
-        }, style = ts(14f, C.Text2))
+        // время в пути (как в карточке Яндекса); пока считается — показываем расстояние по прямой
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Navigation, null, tint = C.Yellow, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(s.nav.placeEta ?: (dist?.let { "$it · считаю время…" } ?: "Считаю время в пути…"),
+                style = ts(19f, C.Text, FontWeight.Medium))
+        }
+        if (s.nav.placeOrgs.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Text("Здесь находятся", style = ts(14f, C.Muted))
+            Spacer(Modifier.height(6.dp))
+            s.nav.placeOrgs.take(5).forEach { org ->
+                Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(C.Text2))
+                    Spacer(Modifier.width(12.dp))
+                    Text(org, style = ts(17f, C.Text), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        } else if (p.description.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(p.description, style = ts(15f, C.Muted), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.weight(1f).height(60.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)

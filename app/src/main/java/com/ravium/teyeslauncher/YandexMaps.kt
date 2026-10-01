@@ -117,6 +117,20 @@ private class YandexNav : NavProvider {
         })
     }
 
+    private var orgSession: Session? = null
+    override fun nearbyOrgs(lat: Double, lon: Double, cb: (List<String>) -> Unit) {
+        orgSession = search.submit(Point(lat, lon), 17, SearchOptions().setSearchTypes(SearchType.BIZ.value).setResultPageSize(8), object : Session.SearchListener {
+            override fun onSearchResponse(r: Response) {
+                val names = r.collection.children.mapNotNull { it.obj }
+                    .filter { o -> o.metadataContainer.getItem(com.yandex.mapkit.search.BusinessObjectMetadata::class.java) != null }
+                    .mapNotNull { it.name?.trim()?.takeIf { n -> n.isNotEmpty() } }
+                    .distinct().take(5)
+                cb(names)
+            }
+            override fun onSearchError(e: Error) {}
+        })
+    }
+
     override fun route(from: Location, to: Place, cb: (Route) -> Unit, err: (String) -> Unit) {
         val pts = listOf(
             RequestPoint(Point(from.latitude, from.longitude), RequestPointType.WAYPOINT, null, null, null),

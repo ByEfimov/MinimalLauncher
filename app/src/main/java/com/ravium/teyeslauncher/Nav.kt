@@ -87,6 +87,8 @@ interface NavProvider {
     fun route(from: Location, to: Place, cb: (Route) -> Unit, err: (String) -> Unit)
     /** Данные о точке на карте (нажали по карте): название + адрес. Best-effort. */
     fun reverse(lat: Double, lon: Double, cb: (name: String, address: String) -> Unit) {}
+    /** Организации рядом/в этой точке (как в карточке Яндекс.Карт). Best-effort; пусто если нет. */
+    fun nearbyOrgs(lat: Double, lon: Double, cb: (List<String>) -> Unit) {}
 }
 
 /**
@@ -282,22 +284,48 @@ class NavRepo(private val ctx: Context) {
 
     /** Идёт ли загрузка данных о точке (для карточки слева). */
     var tapLoading by mutableStateOf(false)
+    /** Время в пути до точки («12 км · 25 мин») — как в карточке Яндекса. */
+    var placeEta by mutableStateOf<String?>(null)
+    /** Организации в/рядом с точкой (кратко). */
+    var placeOrgs by mutableStateOf<List<String>>(emptyList())
 
-    /** Нажали на карту: показать точку и подтянуть её данные из Яндекса/OSM в фоне (карточка слева). */
-    fun tapOnMap(lat: Double, lon: Double) {
+    private fun samePoint(lat: Double, lon: Double) = tapTarget?.let { it.lat == lat && it.lon == lon } == true
+
+    /** Нажали на карту: показать точку и подтянуть её данные (адрес, время в пути, организации). */
+    fun tapOnMap(lat: Double, lon: Double, from: Location?) {
         tapTarget = Place("Точка на карте", "", lat, lon)
-        tapLoading = true
+        tapLoading = true; placeEta = null; placeOrgs = emptyList()
         runCatching {
             provider.reverse(lat, lon) { name, address ->
-                val t = tapTarget
-                if (t != null && t.lat == lat && t.lon == lon) tapTarget = t.copy(name = name.ifBlank { "Точка на карте" }, description = address)
+                if (samePoint(lat, lon)) tapTarget = tapTarget?.copy(name = name.ifBlank { "Точка на карте" }, description = address)
                 tapLoading = false
             }
         }.onFailure { tapLoading = false }
+        loadPlaceInfo(lat, lon, from)
+    }
+
+    /** Открыть карточку уже известного места (из поиска) + подтянуть время в пути и организации. */
+    fun showPlace(p: Place, from: Location?) {
+        tapTarget = p; tapLoading = false; placeEta = null; placeOrgs = emptyList()
+        loadPlaceInfo(p.lat, p.lon, from)
+    }
+
+    private fun loadPlaceInfo(lat: Double, lon: Double, from: Location?) {
+        val dest = Place("", "", lat, lon)
+        if (from != null) runCatching {
+            provider.route(from, dest, { r ->
+                if (samePoint(lat, lon)) {
+                    val mins = (r.durationS / 60).toInt().coerceAtLeast(1)
+                    val dur = if (mins >= 60) "${mins / 60} ч ${mins % 60} мин" else "$mins мин"
+                    placeEta = "${fmtDistance(r.distanceM)} · $dur"
+                }
+            }, {})
+        }
+        runCatching { provider.nearbyOrgs(lat, lon) { orgs -> if (samePoint(lat, lon)) placeOrgs = orgs } }
     }
 
     /** Скрыть маркеры результатов и нажатую точку (поиск закрыт). */
-    fun clearPins() { pins = emptyList(); selectedPin = null; tapTarget = null }
+    fun clearPins() { pins = emptyList(); selectedPin = null; tapTarget = null; placeEta = null; placeOrgs = emptyList() }
 
     fun isFavorite(p: Place) = favorites.any { it.lat == p.lat && it.lon == p.lon }
     fun toggleFavorite(p: Place) =

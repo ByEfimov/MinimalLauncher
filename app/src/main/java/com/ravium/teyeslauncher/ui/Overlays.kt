@@ -546,10 +546,18 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
             { results = it; s.nav.pins = it; loading = false; error = null },
             { error = it; loading = false })
     }
-    fun choose(p: Place, asHome: Boolean) {
+    // сразу построить маршрут (быстрые пункты: Домой/избранное) или сохранить дом
+    fun routePick(p: Place, asHome: Boolean) {
         if (asHome) { s.nav.saveHome(p); Apps.toast(ctx, "Дом сохранён") }
         s.nav.rememberRecent(p); s.nav.clearPins(); s.overlay = null
         s.nav.routeTo(p, s.vehicle.location)
+    }
+    // выбрали адрес/место из поиска — открыть слева карточку с информацией (как в Яндекс.Картах)
+    fun openCard(p: Place) {
+        s.nav.rememberRecent(p)
+        s.nav.pins = listOf(p); s.nav.selectedPin = p
+        s.nav.showPlace(p, s.vehicle.location)   // тянет время в пути и организации; карточка слева
+        s.overlay = null
     }
 
     // панель со стороны колонки блоков (карта по умолчанию справа → список слева)
@@ -590,12 +598,12 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
                 if (query.isBlank()) {
                     val home = s.nav.home
                     if (!setHome && home != null) item {
-                        PlaceRow(Place("Домой", home.name, home.lat, home.lon), s, isHomeRow = true, onPick = { choose(home, false) }, onHome = null)
+                        PlaceRow(Place("Домой", home.name, home.lat, home.lon), s, isHomeRow = true, onPick = { routePick(home, false) }, onHome = null)
                     }
                     if (!setHome && s.nav.favorites.isNotEmpty()) {
                         item { Section("Избранное") }
                         items(s.nav.favorites.size) { i -> val f = s.nav.favorites[i]
-                            PlaceRow(f, s, isHomeRow = false, onPick = { choose(f, false) }, onHome = null) }
+                            PlaceRow(f, s, isHomeRow = false, onPick = { routePick(f, false) }, onHome = null) }
                     }
                     if (s.nav.recents.isNotEmpty()) {
                         item { Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -603,14 +611,14 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
                             Box(Modifier.clip(RoundedCornerShape(10.dp)).clickable { s.nav.clearRecents() }.padding(horizontal = 10.dp, vertical = 6.dp)) {
                                 Text("Очистить", style = t(14f, C.Muted)) } } }
                         items(s.nav.recents.size) { i -> val r = s.nav.recents[i]
-                            PlaceRow(r, s, isHomeRow = false, onPick = { choose(r, setHome) }, onHome = if (setHome) null else ({ choose(r, true) })) }
+                            PlaceRow(r, s, isHomeRow = false, onPick = { if (setHome) routePick(r, true) else openCard(r) }, onHome = if (setHome) null else ({ routePick(r, true) })) }
                     }
                     if (home == null && s.nav.favorites.isEmpty() && s.nav.recents.isEmpty())
                         item { Text("Начните вводить адрес или место — результаты появятся здесь и на карте. Можно нажать точку прямо на карте.",
                             style = t(16f, C.Muted), modifier = Modifier.padding(6.dp)) }
                 } else {
                     items(results.size) { i -> val p = results[i]
-                        PlaceRow(p, s, isHomeRow = false, onPick = { choose(p, setHome) }, onHome = if (setHome) null else ({ choose(p, true) })) }
+                        PlaceRow(p, s, isHomeRow = false, onPick = { if (setHome) routePick(p, true) else openCard(p) }, onHome = if (setHome) null else ({ routePick(p, true) })) }
                 }
             }
         }
