@@ -448,7 +448,8 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
     val lite = remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }
     var lastCam by remember { mutableStateOf(0L) }
     var camAt by remember { mutableStateOf<GeoPoint?>(null) }
-    var zoomLvl by remember { mutableStateOf(16.0) }
+    var zoomedOnce by remember { mutableStateOf(false) }
+    var lastFitDest by remember { mutableStateOf<Place?>(null) }
     val car = remember { CarOverlay(carArrowBitmap(ctx)) }
     val flag = remember { FlagOverlay(flagBitmap(ctx)) }
     val pins = remember { PinsOverlay(pinBitmap(ctx), pinBitmap(ctx, strong = true)) }
@@ -529,12 +530,15 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
     LaunchedEffect(route) {
         line.setPoints(route?.points?.map { GeoPoint(it[0], it[1]) } ?: emptyList())
         flag.point = route?.let { GeoPoint(it.destination.lat, it.destination.lon) }
-        if (route != null && route.points.size > 1) {
+        // Показываем весь маршрут только когда задан НОВЫЙ пункт назначения, а не на каждом пересчёте —
+        // иначе карта сама дёргает масштаб при обновлении маршрута.
+        if (route != null && route.points.size > 1 && route.destination != lastFitDest) {
+            lastFitDest = route.destination
             map.mapOrientation = 0f
             runCatching { map.setMapCenterOffset(0, 0) }
             val bb = BoundingBox.fromGeoPoints(route.points.map { GeoPoint(it[0], it[1]) })
             map.post { runCatching { map.zoomToBoundingBox(bb.increaseByScale(1.25f), true, 60) } }
-        }
+        } else if (route == null) lastFitDest = null
         map.invalidate()
     }
 
@@ -553,16 +557,12 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
         val due = now - lastCam > (if (lite) 1500 else 900) && (speed >= 5 || moved > 25)
         if (ctl.following && (due || camAt == null)) {
             lastCam = now; camAt = gp
-            // zoom with hysteresis — no pumping in and out around the thresholds
-            zoomLvl = when {
-                speed > 95 -> 14.0; speed < 80 && zoomLvl == 14.0 -> 15.0
-                speed > 50 && zoomLvl == 16.0 -> 15.0; speed < 35 && zoomLvl == 15.0 -> 16.0
-                else -> zoomLvl
-            }
             if (headingUp && speed >= 8) map.mapOrientation = -s.vehicle.bearing
             else if (!headingUp) map.mapOrientation = 0f
             runCatching { map.setMapCenterOffset(0, if (headingUp) (map.height * 0.22).toInt() else 0) }
-            if (lite || speed < 5) { map.controller.setZoom(zoomLvl); map.controller.setCenter(gp) } else map.controller.animateTo(gp, zoomLvl, 850L)
+            // масштаб НЕ меняем сами — только центрируемся. Начальный зум ставим один раз.
+            if (!zoomedOnce) { zoomedOnce = true; map.controller.setZoom(16.0) }
+            if (lite || speed < 5) map.controller.setCenter(gp) else map.controller.animateTo(gp)
         }
         map.invalidate()
     }
@@ -582,7 +582,8 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
     val traffic = remember(v) { Prefs.bool(ctx, Prefs.MAP_TRAFFIC, true) } && !lite
     var lastCam by remember { mutableStateOf(0L) }
     var yCamAt by remember { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
-    var yZoom by remember { mutableStateOf(16.5f) }
+    var zoomedOnce by remember { mutableStateOf(false) }
+    var lastFitDest by remember { mutableStateOf<Place?>(null) }
     var yAzimuth by remember { mutableStateOf(0f) }
 
     val mv = remember { com.yandex.mapkit.mapview.MapView(ctx) }
@@ -696,12 +697,16 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
             }
             flag.geometry = com.yandex.mapkit.geometry.Point(route.destination.lat, route.destination.lon)
             flag.isVisible = true
-            runCatching {
-                val pos = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromPolyline(pl))
-                map.move(com.yandex.mapkit.map.CameraPosition(pos.target, pos.zoom - 0.6f, 0f, 0f),
-                    com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.8f), null)
+            // Показываем весь маршрут только для НОВОГО пункта назначения, не на каждом пересчёте.
+            if (route.destination != lastFitDest) {
+                lastFitDest = route.destination
+                runCatching {
+                    val pos = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromPolyline(pl))
+                    map.move(com.yandex.mapkit.map.CameraPosition(pos.target, pos.zoom - 0.6f, 0f, 0f),
+                        com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.8f), null)
+                }
             }
-        } else flag.isVisible = false
+        } else { flag.isVisible = false; lastFitDest = null }
     }
 
     // follow
@@ -719,12 +724,8 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
         val due = now - lastCam > (if (lite) 1500 else 900) && (speed >= 5 || moved > 25f)
         if (ctl.following && (due || yCamAt == null)) {
             lastCam = now; yCamAt = p
-            yZoom = when {
-                speed > 95 -> 14.5f; speed < 80 && yZoom == 14.5f -> 15.5f
-                speed > 50 && yZoom == 16.5f -> 15.5f; speed < 35 && yZoom == 15.5f -> 16.5f
-                else -> yZoom
-            }
-            val zoom = yZoom
+            // масштаб НЕ меняем сами — берём текущий (пользовательский). Начальный зум задаём один раз.
+            val zoom = if (!zoomedOnce) { zoomedOnce = true; 16.5f } else map.cameraPosition.zoom
             if (speed >= 8) yAzimuth = s.vehicle.bearing
             runCatching {
                 val w = mv.mapWindow.width(); val h = mv.mapWindow.height()
