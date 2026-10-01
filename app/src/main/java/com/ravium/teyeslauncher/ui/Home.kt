@@ -55,6 +55,7 @@ import com.ravium.teyeslauncher.*
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 private fun ts(size: Float, color: Color = C.Text, weight: FontWeight = FontWeight.Normal, spacing: Float = 0f) =
     TextStyle(fontFamily = Inter, fontSize = size.sp, color = color, fontWeight = weight, letterSpacing = spacing.sp, lineHeight = (size * 1.2f).sp)
@@ -133,7 +134,61 @@ fun LauncherRoot(s: LauncherState) {
             val dim = remember(s.settingsVersion) { Prefs.str(ctx, Prefs.NIGHT_DIM, "0.3").toFloatOrNull() ?: 0.3f }
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dim)))
         }
+        if (s.volumePanel && s.overlay == null) VolumePopover(s)
         Overlays(s)
+    }
+}
+
+/** Всплывающая плашка громкости под иконкой справа сверху: ползунок + «без звука». */
+@Composable
+private fun VolumePopover(s: LauncherState) {
+    val ctx = LocalContext.current
+    val am = remember { ctx.getSystemService(android.media.AudioManager::class.java) }
+    val max = remember { am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
+    var frac by remember { mutableFloatStateOf(am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / max) }
+    fun apply(f: Float) {
+        val target = (f * max).roundToInt().coerceIn(0, max)
+        runCatching { am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, 0) }
+        var c = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC); var guard = 0
+        while (c != target && guard++ <= max + 1) {
+            am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, if (c < target) android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER, 0)
+            val n = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC); if (n == c) break; c = n
+        }
+    }
+    // клик вне плашки — закрыть
+    Box(Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { s.volumePanel = false }) {
+        Box(Modifier.align(Alignment.TopEnd).padding(top = 112.dp, end = 30.dp)
+            .width(360.dp).clip(RoundedCornerShape(22.dp)).background(Color(0xF21A1D20)).border(Hairline, Color(0x33FFFFFF), RoundedCornerShape(22.dp))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+            .padding(20.dp)) {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Громкость", style = ts(18f, C.Text, FontWeight.Medium))
+                    Spacer(Modifier.weight(1f))
+                    Text("${(frac * 100).roundToInt()}%", style = ts(18f, C.Text2, FontWeight.Medium))
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(44.dp).clip(CircleShape).clickable { frac = 0f; apply(0f) }, contentAlignment = Alignment.Center) {
+                        Icon(if (frac <= 0f) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeMute, "Без звука", tint = C.Text2, modifier = Modifier.size(26.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    // горизонтальный ползунок во всю ширину
+                    Box(Modifier.weight(1f).height(44.dp).pointerInput(Unit) {
+                        detectTapGestures { o -> frac = (o.x / size.width).coerceIn(0f, 1f); apply(frac) }
+                    }.pointerInput(Unit) {
+                        detectHorizontalDragGestures { ch, amt -> ch.consume(); frac = (frac + amt / size.width).coerceIn(0f, 1f); apply(frac) }
+                    }) {
+                        Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(Color(0xFF2A2E33)))
+                        Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(frac.coerceIn(0.001f, 1f)).height(10.dp).clip(RoundedCornerShape(5.dp)).background(Color.White))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Box(Modifier.size(44.dp).clip(CircleShape).clickable { frac = 1f; apply(1f) }, contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.VolumeUp, "Громче", tint = C.Text2, modifier = Modifier.size(26.dp))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -216,6 +271,15 @@ private fun Header(s: LauncherState) {
             Spacer(Modifier.width(22.dp))
             SignalBars(s.status.online)
             Spacer(Modifier.width(26.dp))
+            Box(Modifier.size(44.dp).clip(CircleShape).clickable { s.volumePanel = !s.volumePanel }, contentAlignment = Alignment.Center) {
+                val muted = remember(s.settingsVersion, s.volumePanel) {
+                    val am = ctx.getSystemService(android.media.AudioManager::class.java)
+                    am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0
+                }
+                Icon(if (muted) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp, "Громкость",
+                    tint = if (s.volumePanel) C.Yellow else C.Text, modifier = Modifier.size(27.dp))
+            }
+            Spacer(Modifier.width(14.dp))
             Row(Modifier.clip(RoundedCornerShape(14.dp)).clickable { s.overlay = Overlay.Weather }.padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Text(s.weather.tempC?.let { "$it°" } ?: "--°", style = ts(20f, C.Text))

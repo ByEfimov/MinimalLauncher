@@ -8,6 +8,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -321,23 +322,31 @@ private fun SliderTile(def: TileDef, a: TileState, tile: TileSpec, edit: Boolean
     val vertical = tile.h > tile.w
     var dragging by remember { mutableStateOf(false) }
     var local by remember { mutableFloatStateOf(a.fraction ?: 0f) }
-    // sync from the real system value only when the finger is NOT down (otherwise the 1-second tick fights the drag)
-    LaunchedEffect(a.fraction, dragging) { if (!dragging) a.fraction?.let { local = it } }
+    var lastSet by remember { mutableLongStateOf(0L) }
+    // Синхронизируемся с системой, только когда палец не на плитке и после нашей установки прошло время,
+    // и игнорируем крошечные колебания (авто-яркость/округления) — иначе плитка дёргается.
+    LaunchedEffect(a.fraction, dragging) {
+        if (!dragging && android.os.SystemClock.elapsedRealtime() - lastSet > 1500) {
+            a.fraction?.let { if (kotlin.math.abs(it - local) > 0.02f) local = it }
+        }
+    }
     val setter = rememberUpdatedState(a.set)
     val pct = (local * 100).roundToInt()
+    // плавная заливка: мелкие изменения скользят, а не прыгают
+    val fill by animateFloatAsState(local.coerceIn(0f, 1f), tween(160), label = "fill")
     Box(Modifier.fillMaxSize().pointerInput(edit, vertical) {
         if (!edit) detectDragGestures(
             onDragStart = { dragging = true },
-            onDragEnd = { dragging = false },
-            onDragCancel = { dragging = false },
+            onDragEnd = { dragging = false; lastSet = android.os.SystemClock.elapsedRealtime() },
+            onDragCancel = { dragging = false; lastSet = android.os.SystemClock.elapsedRealtime() },
         ) { ch, amt ->
             ch.consume()
             val d = if (vertical) -amt.y / size.height else amt.x / size.width
-            local = (local + d).coerceIn(0f, 1f); setter.value?.invoke(local)
+            local = (local + d).coerceIn(0f, 1f); lastSet = android.os.SystemClock.elapsedRealtime(); setter.value?.invoke(local)
         }
     }) {
         Box(Modifier.align(if (vertical) Alignment.BottomStart else Alignment.CenterStart)
-            .then(if (vertical) Modifier.fillMaxWidth().fillMaxHeight(local.coerceIn(0f, 1f)) else Modifier.fillMaxHeight().fillMaxWidth(local.coerceIn(0f, 1f)))
+            .then(if (vertical) Modifier.fillMaxWidth().fillMaxHeight(fill) else Modifier.fillMaxHeight().fillMaxWidth(fill))
             .background(Color.White.copy(alpha = 0.9f)))
         val onFill = if (vertical) local > 0.22f else local > 0.12f
         Icon(def.icon, null, tint = if (onFill) Color(0xFF15171A) else Color.White,

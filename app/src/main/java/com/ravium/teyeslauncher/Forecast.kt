@@ -66,6 +66,57 @@ object Wx {
         }
     }
 
+    /** Русское описание погоды (Яндекс.Погода, страница) → Open-Meteo-like code. */
+    fun ru(cond: String): Int {
+        val x = cond.lowercase()
+        return when {
+            x.contains("гроза") -> 95
+            x.contains("град") -> 77
+            x.contains("мокрый снег") || (x.contains("дожд") && x.contains("снег")) -> 66
+            x.contains("снег") || x.contains("метель") || x.contains("снегопад") -> 73
+            x.contains("ливень") -> 80
+            x.contains("сильный дождь") || x.contains("сильный ливень") -> 65
+            x.contains("дожд") -> 63
+            x.contains("морос") -> 51
+            x.contains("туман") || x.contains("дымка") || x.contains("мгла") -> 45
+            x.contains("облачно с прояснениями") || x.contains("малооблачно") || x.contains("переменная облачность") -> 2
+            x.contains("небольшая облачность") -> 1
+            x.contains("пасмурно") || x.contains("облачно") -> 3
+            x.contains("ясно") -> 0
+            else -> 3
+        }
+    }
+
+    /** Достаёт число со знаком (учитывает юникод-минус «−» и «+»). */
+    private fun signedInt(s: String): Int? {
+        val m = Regex("[−\\-+]?\\s?\\d+").find(s)?.value ?: return null
+        return m.replace("−", "-").replace(" ", "").replace("+", "").toIntOrNull()
+    }
+
+    /**
+     * Яндекс.Погода как HTML-страница (yandex.ru — в белом списке РФ, без ключа).
+     * Работает даже при ограничениях интернета, когда open-meteo/wttr/прокси недоступны.
+     */
+    fun yandexPage(lat: Double, lon: Double): String? = runCatching {
+        val c = URL("https://yandex.ru/pogoda/?lat=%.4f&lon=%.4f".format(Locale.US, lat, lon)).openConnection() as HttpURLConnection
+        c.connectTimeout = 7000; c.readTimeout = 8000
+        c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120 Mobile")
+        c.setRequestProperty("Accept-Language", "ru,en;q=0.8")
+        if (c.responseCode != 200) { c.disconnect(); return null }
+        c.inputStream.bufferedReader().use { it.readText() }.also { c.disconnect() }
+    }.getOrNull()
+
+    /** Текущая температура+код со страницы Яндекс.Погоды. */
+    fun currentFromYandexPage(lat: Double, lon: Double): Pair<Int, Int>? = runCatching {
+        val html = yandexPage(lat, lon) ?: return null
+        val tempStr = Regex("Температура воздуха\\s*([+−\\-]?\\s?\\d+)").find(html)?.groupValues?.get(1)
+            ?: Regex("temp__value[^>]*>\\s*([+−\\-]?\\s?\\d+)").find(html)?.groupValues?.get(1)
+        val temp = tempStr?.let { signedInt(it) } ?: return null
+        val condPhrase = Regex("погода сейчас:\\s*([^.．,<]+)").find(html)?.groupValues?.get(1)
+            ?: Regex("content=\"([^\"]*погода[^\"]*)\"").find(html)?.groupValues?.get(1) ?: ""
+        temp to ru(condPhrase)
+    }.getOrNull()
+
     /** MET Norway (yr.no) symbol_code → Open-Meteo-like code. */
     fun met(sym: String): Int {
         val x = sym.lowercase()
@@ -98,8 +149,10 @@ object Wx {
         else -> 3
     }
 
-    /** Current temp + normalised code. Tries wttr.in, then Open-Meteo. */
+    /** Current temp + normalised code. Яндекс.Погода (белый список) → прокси → wttr → met → open-meteo. */
     fun current(lat: Double, lon: Double): Pair<Int, Int>? {
+        // Яндекс.Погода-страница: работает в РФ даже при ограничениях (yandex.ru — белый список)
+        currentFromYandexPage(lat, lon)?.let { return it }
         runCatching {
             val p = proxyUrl() ?: return@runCatching null
             val body = get("$p?action=weather&lat=%.4f&lon=%.4f".format(Locale.US, lat, lon)) ?: return@runCatching null
@@ -138,7 +191,7 @@ object ForecastRepo {
     suspend fun load(lat: Double, lon: Double): Forecast? = withContext(Dispatchers.IO) {
         val key = "%.2f,%.2f".format(Locale.US, lat, lon)
         cache?.let { (k, v) -> if (k == key && System.currentTimeMillis() - v.first < 15 * 60_000) return@withContext v.second }
-        val fc = fromProxy(lat, lon) ?: fromYandex(lat, lon) ?: fromWttr(lat, lon) ?: fromMetNo(lat, lon) ?: fromOpenMeteo(lat, lon)
+        val fc = fromProxy(lat, lon) ?: fromYandex(lat, lon) ?: fromWttr(lat, lon) ?: fromMetNo(lat, lon) ?: fromOpenMeteo(lat, lon) ?: fromYandexPage(lat, lon)
         if (fc != null) cache = key to (System.currentTimeMillis() to fc)
         fc
     }
@@ -303,6 +356,19 @@ object ForecastRepo {
         val p = Wx.proxyUrl() ?: return null
         val body = Wx.get("$p?action=weather&lat=%.4f&lon=%.4f".format(Locale.US, lat, lon)) ?: return null
         parseOpenMeteo(JSONObject(body))
+    }.getOrNull()
+
+    /** Запасной источник для РФ при ограничениях: страница Яндекс.Погоды (yandex.ru). Текущая погода надёжно, прогноз — по возможности. */
+    private fun fromYandexPage(lat: Double, lon: Double): Forecast? = runCatching {
+        val html = Wx.yandexPage(lat, lon) ?: return null
+        val temp = Regex("Температура воздуха\\s*([+−\\-]?\\s?\\d+)").find(html)?.groupValues?.get(1)?.let {
+            it.replace("−", "-").replace(" ", "").replace("+", "").toIntOrNull() } ?: return null
+        val feels = Regex("ощущается как\\s*([+−\\-]?\\s?\\d+)").find(html)?.groupValues?.get(1)?.let {
+            it.replace("−", "-").replace(" ", "").replace("+", "").toIntOrNull() } ?: temp
+        val condPhrase = Regex("погода сейчас:\\s*([^.．,<]+)").find(html)?.groupValues?.get(1) ?: ""
+        val code = Wx.ru(condPhrase)
+        // осадки/ветер со страницы не парсим — отдаём надёжную текущую погоду; прогноз пустой (в белом списке это ожидаемо)
+        Forecast(temp, feels, code, 0, 0, emptyList(), emptyList(), emptyList())
     }.getOrNull()
 
     private fun fromOpenMeteo(lat: Double, lon: Double): Forecast? = runCatching {

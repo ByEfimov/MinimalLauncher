@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Android
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.Delete
@@ -522,6 +523,9 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    fun hideKeyboard() { keyboard?.hide(); focusManager.clearFocus() }
 
     // карта остаётся на месте: открываем на главном экране, снимаем парковку, не «догоняем» машину
     LaunchedEffect(Unit) {
@@ -529,6 +533,8 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
         s.parked = false; s.parkDismissed = true
         runCatching { focus.requestFocus() }
     }
+    // нажали на карту (под панелью) — прячем клавиатуру, чтобы было видно карту
+    LaunchedEffect(s.nav.tapTarget) { if (s.nav.tapTarget != null) hideKeyboard() }
     DisposableEffect(Unit) { onDispose { s.nav.clearPins() } }
 
     // поиск по мере набора (с задержкой) → список + маркеры на карте
@@ -563,12 +569,19 @@ private fun SearchPanel(s: LauncherState, setHome: Boolean) {
                 placeholder = { Text("Адрес или место", style = t(20f, C.Muted)) },
                 textStyle = t(22f, C.Text), singleLine = true,
                 leadingIcon = { Icon(Icons.Outlined.Search, null, tint = C.Muted, modifier = Modifier.size(28.dp)) },
-                trailingIcon = { if (query.isNotEmpty()) Box(Modifier.size(48.dp).clip(CircleShape).clickable { query = "" }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Close, "Очистить", tint = C.Muted, modifier = Modifier.size(24.dp)) } },
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (query.isNotEmpty()) Box(Modifier.size(48.dp).clip(CircleShape).clickable { query = "" }, contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.Close, "Очистить", tint = C.Muted, modifier = Modifier.size(24.dp)) }
+                        Box(Modifier.size(48.dp).clip(CircleShape).clickable { hideKeyboard() }, contentAlignment = Alignment.Center) {
+                            Icon(Icons.Outlined.KeyboardHide, "Скрыть клавиатуру", tint = C.Muted, modifier = Modifier.size(26.dp)) }
+                    }
+                },
                 colors = androidx.compose.material3.TextFieldDefaults.colors(
                     focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { hideKeyboard() }),
             )
             if (loading) Text("Ищу…", style = t(16f, C.Muted), modifier = Modifier.padding(top = 10.dp, start = 6.dp))
             error?.let { Text(it, style = t(16f, C.GuideRed), modifier = Modifier.padding(top = 10.dp, start = 6.dp)) }

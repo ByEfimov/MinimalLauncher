@@ -72,6 +72,8 @@ class LauncherState(val activity: MainActivity) {
     fun turnPage(delta: Int) { val all = Page.entries; go(all[(all.indexOf(page) + delta + all.size) % all.size]) }
     /** Tiles page is in edit mode (resize / move / remove / add). */
     var tilesEdit by mutableStateOf(false)
+    /** Всплывающий ползунок громкости (иконка справа сверху). */
+    var volumePanel by mutableStateOf(false)
     /** Parking screen is shown instead of the map (standing still for a while, no route). */
     var parked by mutableStateOf(false)
     var parkDismissed = false
