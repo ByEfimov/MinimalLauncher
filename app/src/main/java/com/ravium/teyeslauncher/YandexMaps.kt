@@ -104,6 +104,18 @@ private class YandexNav : NavProvider {
         })
     }
 
+    private var reverseSession: Session? = null
+    override fun reverse(lat: Double, lon: Double, cb: (String) -> Unit) {
+        reverseSession = search.submit(Point(lat, lon), 18, SearchOptions().setSearchTypes(SearchType.GEO.value), object : Session.SearchListener {
+            override fun onSearchResponse(r: Response) {
+                val o = r.collection.children.firstOrNull()?.obj
+                val name = o?.name ?: o?.descriptionText ?: ""
+                if (name.isNotBlank()) cb(name)
+            }
+            override fun onSearchError(e: Error) {}
+        })
+    }
+
     override fun route(from: Location, to: Place, cb: (Route) -> Unit, err: (String) -> Unit) {
         val pts = listOf(
             RequestPoint(Point(from.latitude, from.longitude), RequestPointType.WAYPOINT, null, null, null),

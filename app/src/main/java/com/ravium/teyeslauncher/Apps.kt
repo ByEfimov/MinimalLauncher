@@ -35,6 +35,7 @@ object Prefs {
     const val USER_NAME = "user_name"             // greeting in the header
     const val ACCENT = "accent"                   // ARGB hex
     const val FAVORITES_PLACES = "favorite_places"
+    const val RECENT_PLACES = "recent_places"     // история поиска (последние выбранные места)
     const val ONBOARDED = "onboarded"
     const val BT_OPEN_APP = "bt_open_app"         // open TEYES BT screen when switching to Bluetooth
     const val MAIN_PLAYER = "main_player"         // package of the main music tab (Яндекс Музыка by default)

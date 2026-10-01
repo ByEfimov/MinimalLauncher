@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.DownloadForOffline
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.OpenInFull
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Icon
@@ -47,6 +48,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.ravium.teyeslauncher.*
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -113,6 +116,28 @@ fun flagBitmap(ctx: Context): Bitmap {
     val c = Canvas(b)
     c.drawCircle(px / 2f, px / 2f, px * 0.42f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = RouteColor })
     c.drawCircle(px / 2f, px / 2f, px * 0.42f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); style = Paint.Style.STROKE; strokeWidth = px * 0.1f })
+    return b
+}
+
+/** Teardrop pin for a search result (bottom tip points at the place). [strong] = the selected / tapped pin. */
+fun pinBitmap(ctx: Context, strong: Boolean = false): Bitmap {
+    val d = ctx.resources.displayMetrics.density
+    val w = (26 * d).toInt().coerceAtLeast(22); val h = (34 * d).toInt().coerceAtLeast(28)
+    val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val c = Canvas(b)
+    val cx = w / 2f; val r = w * 0.40f; val cy = r + h * 0.06f
+    val fill = if (strong) 0xFFFF4D5A.toInt() else 0xFF3D8BFF.toInt()
+    val path = Path().apply {
+        moveTo(cx, h - h * 0.04f)
+        cubicTo(cx - r * 1.25f, cy + r * 0.9f, cx - r, cy - r * 0.2f, cx, cy - r)   // left side up to top
+        cubicTo(cx + r, cy - r * 0.2f, cx + r * 1.25f, cy + r * 0.9f, cx, h - h * 0.04f) // right side down to tip
+        close()
+    }
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = fill; setShadowLayer(w * 0.08f, 0f, w * 0.04f, 0x55000000)
+    })
+    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt(); style = Paint.Style.STROKE; strokeWidth = w * 0.07f })
+    c.drawCircle(cx, cy, r * 0.42f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() })
     return b
 }
 
@@ -197,6 +222,11 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
             Box(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, bottom = 26.dp, end = 230.dp)) { RouteChip(s, r, s.nav.progress) }
         }
 
+        // tapped a point on the map → confirm a route there
+        s.nav.tapTarget?.let { t ->
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)) { TapTargetChip(s, t) }
+        }
+
         if (!YandexMaps.enabled) Text("© OpenStreetMap", style = TextStyle(fontSize = 10.sp, color = Color(0x99FFFFFF)),
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp))
     }
@@ -238,6 +268,40 @@ private fun RouteChip(s: LauncherState, r: Route, p: Progress?) {
         }
         Box(Modifier.size(44.dp).clip(CircleShape).clickable { s.nav.clear() }, contentAlignment = Alignment.Center) {
             Icon(Icons.Outlined.Close, "Сбросить маршрут", tint = C.Text2, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
+/** Tapped a point on the map: show it and offer to route there. */
+@Composable
+private fun TapTargetChip(s: LauncherState, t: Place) {
+    Row(
+        Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xF0101315)).border(Hairline, Color(0x33FFFFFF), RoundedCornerShape(18.dp))
+            .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Outlined.Place, null, tint = Color(0xFFFF6B75), modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.widthIn(max = 320.dp)) {
+            Text("Точка на карте", style = TextStyle(fontFamily = Inter, fontSize = 13.sp, color = C.Muted))
+            Text(t.name, style = TextStyle(fontFamily = Inter, fontSize = 17.sp, color = C.Text, fontWeight = FontWeight.Medium),
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.width(12.dp))
+        Row(
+            Modifier.clip(RoundedCornerShape(14.dp)).background(C.YellowBg).border(1.5.dp, C.YellowBorder, RoundedCornerShape(14.dp))
+                .clickable {
+                    s.nav.rememberRecent(t); s.nav.clearPins(); s.overlay = null
+                    s.nav.routeTo(t, s.vehicle.location)
+                }.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Outlined.Flag, null, tint = C.Text, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Маршрут сюда", style = TextStyle(fontFamily = Inter, fontSize = 16.sp, color = C.Text, fontWeight = FontWeight.SemiBold))
+        }
+        Box(Modifier.size(44.dp).clip(CircleShape).clickable { s.nav.tapTarget = null }, contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.Close, "Отмена", tint = C.Text2, modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -333,6 +397,24 @@ private class FlagOverlay(private val flag: Bitmap) : Overlay() {
     }
 }
 
+/** Search-result pins + the tapped point. Teardrop tip sits exactly on the coordinate. */
+private class PinsOverlay(private val pin: Bitmap, private val pinStrong: Bitmap) : Overlay() {
+    var points: List<GeoPoint> = emptyList()
+    var strong: GeoPoint? = null
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    override fun draw(c: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow) return
+        for (p in points) {
+            val px = mapView.projection.toPixels(p, null)
+            c.drawBitmap(pin, px.x - pin.width / 2f, (px.y - pin.height).toFloat(), paint)
+        }
+        strong?.let { p ->
+            val px = mapView.projection.toPixels(p, null)
+            c.drawBitmap(pinStrong, px.x - pinStrong.width / 2f, (px.y - pinStrong.height).toFloat(), paint)
+        }
+    }
+}
+
 @SuppressLint("ClickableViewAccessibility")
 @Composable
 private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
@@ -346,6 +428,7 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
     var zoomLvl by remember { mutableStateOf(16.0) }
     val car = remember { CarOverlay(carArrowBitmap(ctx)) }
     val flag = remember { FlagOverlay(flagBitmap(ctx)) }
+    val pins = remember { PinsOverlay(pinBitmap(ctx), pinBitmap(ctx, strong = true)) }
     val line = remember {
         Polyline().apply {
             outlinePaint.color = RouteColor
@@ -373,11 +456,32 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
             // light placeholder: the dark-theme colour filter turns it into near-black (#121212) while tiles load
             overlayManager.tilesOverlay.loadingBackgroundColor = 0xFFF3F3F3.toInt()
             overlayManager.tilesOverlay.loadingLineColor = 0xFFE9E9E9.toInt()
-            overlays.add(line); overlays.add(flag); overlays.add(car)
+            // tap on the map → offer a route to that point
+            overlays.add(MapEventsOverlay(object : MapEventsReceiver {
+                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { s.nav.tapOnMap(p.latitude, p.longitude); return true }
+                override fun longPressHelper(p: GeoPoint): Boolean { s.nav.tapOnMap(p.latitude, p.longitude); return true }
+            }))
+            overlays.add(line); overlays.add(flag); overlays.add(pins); overlays.add(car)
             setOnTouchListener { _, e ->
                 if (e.actionMasked == MotionEvent.ACTION_MOVE || e.pointerCount > 1) ctl.touched()
                 false
             }
+        }
+    }
+    // search-result pins + the tapped point
+    LaunchedEffect(s.nav.pins, s.nav.selectedPin, s.nav.tapTarget) {
+        pins.points = s.nav.pins.map { GeoPoint(it.lat, it.lon) }
+        pins.strong = (s.nav.tapTarget ?: s.nav.selectedPin)?.let { GeoPoint(it.lat, it.lon) }
+        map.invalidate()
+    }
+    // when results arrive while searching, frame them
+    val searching = s.overlay is com.ravium.teyeslauncher.Overlay.Search
+    LaunchedEffect(s.nav.pins, searching) {
+        if (searching && s.nav.pins.size >= 1) {
+            ctl.following = false
+            val gps = s.nav.pins.map { GeoPoint(it.lat, it.lon) } + listOfNotNull(s.vehicle.location?.let { GeoPoint(it.latitude, it.longitude) })
+            if (gps.size >= 2) map.post { runCatching { map.zoomToBoundingBox(BoundingBox.fromGeoPoints(gps).increaseByScale(1.4f), true, 80) } }
+            else map.post { runCatching { map.controller.animateTo(gps.first()); if (map.zoomLevelDouble < 14.0) map.controller.setZoom(15.0) } }
         }
     }
     LaunchedEffect(style) { map.overlayManager.tilesOverlay.setColorFilter(if (style == "light") null else OsmTiles.darkFilter); map.invalidate() }
@@ -390,8 +494,9 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
         owner.lifecycle.addObserver(obs)
         onDispose { owner.lifecycle.removeObserver(obs); map.onDetach() }
     }
-    // a full-screen panel (settings, apps…) covers the map → stop loading tiles until it closes
-    val covered = s.overlay != null || s.page != Page.HOME || s.parked
+    // a full-screen panel (settings, apps…) covers the map → stop loading tiles until it closes.
+    // Поиск — исключение: карта остаётся живой рядом со списком.
+    val covered = (s.overlay != null && !searching) || s.page != Page.HOME || s.parked
     LaunchedEffect(covered) {
         if (covered) map.onPause() else if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) map.onResume()
     }
@@ -476,15 +581,58 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
         }
     }
     var line by remember { mutableStateOf<com.yandex.mapkit.map.PolylineMapObject?>(null) }
+    val pinsCollection = remember { map.mapObjects.addCollection() }
+    val pinImage = remember { com.yandex.runtime.image.ImageProvider.fromBitmap(pinBitmap(ctx)) }
+    val pinStrongImage = remember { com.yandex.runtime.image.ImageProvider.fromBitmap(pinBitmap(ctx, strong = true)) }
+    val pinStyle = remember { com.yandex.mapkit.map.IconStyle().setAnchor(PointF(0.5f, 1f)).setZIndex(16f) }
     // MapKit keeps listeners as weak references — hold a strong one here
     val cameraListener = remember {
         com.yandex.mapkit.map.CameraListener { _, _, reason, _ ->
             if (reason == com.yandex.mapkit.map.CameraUpdateReason.GESTURES) ctl.touched()
         }
     }
+    // tap on the map → offer a route to that point
+    val inputListener = remember {
+        object : com.yandex.mapkit.map.InputListener {
+            override fun onMapTap(map: com.yandex.mapkit.map.Map, p: com.yandex.mapkit.geometry.Point) { s.nav.tapOnMap(p.latitude, p.longitude) }
+            override fun onMapLongTap(map: com.yandex.mapkit.map.Map, p: com.yandex.mapkit.geometry.Point) { s.nav.tapOnMap(p.latitude, p.longitude) }
+        }
+    }
     DisposableEffect(Unit) {
         map.addCameraListener(java.lang.ref.WeakReference(cameraListener))
-        onDispose { map.removeCameraListener(java.lang.ref.WeakReference(cameraListener)) }
+        map.addInputListener(java.lang.ref.WeakReference(inputListener))
+        onDispose { map.removeCameraListener(java.lang.ref.WeakReference(cameraListener)); map.removeInputListener(java.lang.ref.WeakReference(inputListener)) }
+    }
+    val searching = s.overlay is com.ravium.teyeslauncher.Overlay.Search
+    // render search-result pins + the tapped point
+    LaunchedEffect(s.nav.pins, s.nav.selectedPin, s.nav.tapTarget) {
+        pinsCollection.clear()
+        s.nav.pins.forEach { pl ->
+            runCatching { pinsCollection.addPlacemark().apply {
+                geometry = com.yandex.mapkit.geometry.Point(pl.lat, pl.lon); setIcon(pinImage, pinStyle)
+            } }
+        }
+        (s.nav.tapTarget ?: s.nav.selectedPin)?.let { pl ->
+            runCatching { pinsCollection.addPlacemark().apply {
+                geometry = com.yandex.mapkit.geometry.Point(pl.lat, pl.lon); setIcon(pinStrongImage, pinStyle)
+            } }
+        }
+    }
+    // frame the results when they arrive while searching
+    LaunchedEffect(s.nav.pins, searching) {
+        if (searching && s.nav.pins.isNotEmpty()) {
+            ctl.following = false
+            val pts = s.nav.pins.map { com.yandex.mapkit.geometry.Point(it.lat, it.lon) } +
+                listOfNotNull(s.vehicle.location?.let { com.yandex.mapkit.geometry.Point(it.latitude, it.longitude) })
+            runCatching {
+                if (pts.size >= 2) {
+                    val pos = map.cameraPosition(com.yandex.mapkit.geometry.Geometry.fromPolyline(com.yandex.mapkit.geometry.Polyline(pts)))
+                    map.move(com.yandex.mapkit.map.CameraPosition(pos.target, (pos.zoom - 0.6f).coerceAtMost(16f), 0f, 0f),
+                        com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.6f), null)
+                } else map.move(com.yandex.mapkit.map.CameraPosition(pts.first(), 15.5f, 0f, 0f),
+                    com.yandex.mapkit.Animation(com.yandex.mapkit.Animation.Type.SMOOTH, 0.6f), null)
+            }
+        }
     }
     LaunchedEffect(style, traffic) {
         map.isNightModeEnabled = style != "light"
@@ -500,8 +648,9 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) mv.onStart()
         onDispose { owner.lifecycle.removeObserver(obs); mv.onStop() }
     }
-    // a full-screen panel covers the map → stop rendering it (saves CPU/GPU while in settings or the app list)
-    val covered = s.overlay != null || s.page != Page.HOME || s.parked
+    // a full-screen panel covers the map → stop rendering it (saves CPU/GPU while in settings or the app list).
+    // Поиск — исключение: карта остаётся рядом со списком.
+    val covered = (s.overlay != null && !searching) || s.page != Page.HOME || s.parked
     var paused by remember { mutableStateOf(false) }
     LaunchedEffect(covered) {
         if (covered && !paused) { mv.onStop(); paused = true }

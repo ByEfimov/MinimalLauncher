@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.platform.LocalContext
@@ -64,7 +65,9 @@ internal fun t(size: Float, color: Color = C.Text, weight: FontWeight = FontWeig
 fun BoxScope.Overlays(s: LauncherState) {
     val o = s.overlay
     if (InstantUi && o == null) return
-    AnimatedVisibility(o != null, enter = if (InstantUi) androidx.compose.animation.EnterTransition.None else fadeIn(), exit = fadeOut(), modifier = Modifier.matchParentSize()) {
+    // Search is special: it does NOT cover the map — list on one side, the live map stays on the other.
+    if (o is Overlay.Search) { SearchPanel(s, o.setHome); return }
+    AnimatedVisibility(o != null && o !is Overlay.Search, enter = if (InstantUi) androidx.compose.animation.EnterTransition.None else fadeIn(), exit = fadeOut(), modifier = Modifier.matchParentSize()) {
         Box(
             Modifier.fillMaxSize().background(Color(0xF20A0C0D))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
@@ -79,7 +82,7 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.SettingsCat -> SettingsCategory(s, o.id)
                 is Overlay.Setup -> SetupScreen(s)
                 is Overlay.Diagnostics -> DiagnosticsScreen(s)
-                is Overlay.Search -> SearchScreen(s, o.setHome)
+                is Overlay.Search -> {}   // отрисовывается отдельно (SearchPanel) — не поверх карты
                 is Overlay.ApiKey -> ApiKeyScreen(s)
                 is Overlay.WeatherKey -> WeatherKeyScreen(s)
                 is Overlay.ProxyKey -> ProxyKeyScreen(s)
@@ -506,61 +509,102 @@ internal fun ChipsRow(title: String, options: List<Pair<String, String>>, select
 
 // ============================ SEARCH ============================
 
-/** Address / place search. Tap a result → route; the house button saves it as «Дом». */
+/**
+ * Поиск на карте: список слева (или справа — со стороны колонки блоков), живая карта остаётся на месте.
+ * По мере набора результаты показываются и в списке, и маркерами на карте. Нажатие — маршрут.
+ * Карта под панелью живёт (см. MapCard: covered исключает поиск); по ней можно нажать — построить маршрут в точку.
+ */
 @Composable
-private fun SearchScreen(s: LauncherState, setHome: Boolean) {
+private fun SearchPanel(s: LauncherState, setHome: Boolean) {
     val ctx = LocalContext.current
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    // search as you type (debounced)
+
+    // карта остаётся на месте: открываем на главном экране, снимаем парковку, не «догоняем» машину
+    LaunchedEffect(Unit) {
+        if (s.page != Page.HOME) s.go(Page.HOME)
+        s.parked = false; s.parkDismissed = true
+        runCatching { focus.requestFocus() }
+    }
+    DisposableEffect(Unit) { onDispose { s.nav.clearPins() } }
+
+    // поиск по мере набора (с задержкой) → список + маркеры на карте
     LaunchedEffect(query) {
-        if (query.trim().length < 3) { results = emptyList(); return@LaunchedEffect }
-        delay(600)
+        if (query.trim().length < 3) { results = emptyList(); s.nav.pins = emptyList(); return@LaunchedEffect }
+        delay(500)
         loading = true
-        s.nav.provider.search(query.trim(), s.vehicle.location, { results = it; loading = false; error = null }, { error = it; loading = false })
+        s.nav.provider.search(query.trim(), s.vehicle.location,
+            { results = it; s.nav.pins = it; loading = false; error = null },
+            { error = it; loading = false })
     }
     fun choose(p: Place, asHome: Boolean) {
         if (asHome) { s.nav.saveHome(p); Apps.toast(ctx, "Дом сохранён") }
-        s.overlay = null
+        s.nav.rememberRecent(p); s.nav.clearPins(); s.overlay = null
         s.nav.routeTo(p, s.vehicle.location)
     }
-    Column(Modifier.fillMaxSize()) {
-        OverlayHeader(if (setHome) "Адрес дома" else "Куда едем?") { s.overlay = null }
-        Spacer(Modifier.height(12.dp))
-        androidx.compose.material3.TextField(
-            value = query, onValueChange = { query = it },
-            modifier = Modifier.fillMaxWidth().height(72.dp).focusRequester(focus).clip(CardShape).border(Hairline, C.Stroke, CardShape),
-            placeholder = { Text("Адрес или место", style = t(20f, C.Muted)) },
-            textStyle = t(22f, C.Text),
-            singleLine = true,
-            leadingIcon = { Icon(androidx.compose.material.icons.Icons.Outlined.Search, null, tint = C.Muted, modifier = Modifier.size(28.dp)) },
-            colors = androidx.compose.material3.TextFieldDefaults.colors(
-                focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
-                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-        )
-        Spacer(Modifier.height(10.dp))
-        val home = s.nav.home
-        if (!setHome && home != null && query.isBlank()) {
-            PlaceRow(Place("Домой", home.name, home.lat, home.lon), s, isHomeRow = true, onPick = { choose(home, false) }, onHome = null)
-            Spacer(Modifier.height(8.dp))
-        }
-        if (!setHome && query.isBlank()) s.nav.favorites.forEach { f ->
-            PlaceRow(f, s, isHomeRow = false, onPick = { choose(f, false) }, onHome = null)
-            Spacer(Modifier.height(8.dp))
-        }
-        if (loading) Text("Ищу…", style = t(16f, C.Muted), modifier = Modifier.padding(6.dp))
-        error?.let { Text(it, style = t(16f, C.GuideRed), modifier = Modifier.padding(6.dp)) }
-        androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(results.size) { i ->
-                val p = results[i]
-                PlaceRow(p, s, isHomeRow = false, onPick = { choose(p, setHome) }, onHome = if (setHome) null else ({ choose(p, true) }))
+
+    // панель со стороны колонки блоков (карта по умолчанию справа → список слева)
+    val onLeft = remember(s.settingsVersion) { HomeLayout.sideLeft(ctx) }
+    val panel: @Composable () -> Unit = {
+        Column(
+            Modifier.width(600.dp).fillMaxHeight()
+                .background(Brush.horizontalGradient(if (onLeft) listOf(Color(0xF2090B0C), Color(0xE6090B0C)) else listOf(Color(0xE6090B0C), Color(0xF2090B0C))))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+                .padding(horizontal = 28.dp, vertical = 24.dp)
+        ) {
+            OverlayHeader(if (setHome) "Адрес дома" else "Куда едем?") { s.overlay = null }
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.TextField(
+                value = query, onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth().height(72.dp).focusRequester(focus).clip(CardShape).border(Hairline, C.Stroke, CardShape),
+                placeholder = { Text("Адрес или место", style = t(20f, C.Muted)) },
+                textStyle = t(22f, C.Text), singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, null, tint = C.Muted, modifier = Modifier.size(28.dp)) },
+                trailingIcon = { if (query.isNotEmpty()) Box(Modifier.size(48.dp).clip(CircleShape).clickable { query = "" }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Close, "Очистить", tint = C.Muted, modifier = Modifier.size(24.dp)) } },
+                colors = androidx.compose.material3.TextFieldDefaults.colors(
+                    focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
+                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+            )
+            if (loading) Text("Ищу…", style = t(16f, C.Muted), modifier = Modifier.padding(top = 10.dp, start = 6.dp))
+            error?.let { Text(it, style = t(16f, C.GuideRed), modifier = Modifier.padding(top = 10.dp, start = 6.dp)) }
+            Spacer(Modifier.height(10.dp))
+            androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                if (query.isBlank()) {
+                    val home = s.nav.home
+                    if (!setHome && home != null) item {
+                        PlaceRow(Place("Домой", home.name, home.lat, home.lon), s, isHomeRow = true, onPick = { choose(home, false) }, onHome = null)
+                    }
+                    if (!setHome && s.nav.favorites.isNotEmpty()) {
+                        item { Section("Избранное") }
+                        items(s.nav.favorites.size) { i -> val f = s.nav.favorites[i]
+                            PlaceRow(f, s, isHomeRow = false, onPick = { choose(f, false) }, onHome = null) }
+                    }
+                    if (s.nav.recents.isNotEmpty()) {
+                        item { Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Section("История"); Spacer(Modifier.weight(1f))
+                            Box(Modifier.clip(RoundedCornerShape(10.dp)).clickable { s.nav.clearRecents() }.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                Text("Очистить", style = t(14f, C.Muted)) } } }
+                        items(s.nav.recents.size) { i -> val r = s.nav.recents[i]
+                            PlaceRow(r, s, isHomeRow = false, onPick = { choose(r, setHome) }, onHome = if (setHome) null else ({ choose(r, true) })) }
+                    }
+                    if (home == null && s.nav.favorites.isEmpty() && s.nav.recents.isEmpty())
+                        item { Text("Начните вводить адрес или место — результаты появятся здесь и на карте. Можно нажать точку прямо на карте.",
+                            style = t(16f, C.Muted), modifier = Modifier.padding(6.dp)) }
+                } else {
+                    items(results.size) { i -> val p = results[i]
+                        PlaceRow(p, s, isHomeRow = false, onPick = { choose(p, setHome) }, onHome = if (setHome) null else ({ choose(p, true) })) }
+                }
             }
         }
+    }
+    // панель прижата к своей стороне; остальное прозрачно — под ним живая карта (нажатие по ней строит маршрут)
+    Row(Modifier.fillMaxSize()) {
+        if (onLeft) { panel(); Spacer(Modifier.weight(1f)) } else { Spacer(Modifier.weight(1f)); panel() }
     }
 }
 

@@ -85,6 +85,8 @@ interface NavProvider {
     val name: String
     fun search(query: String, near: Location?, cb: (List<Place>) -> Unit, err: (String) -> Unit)
     fun route(from: Location, to: Place, cb: (Route) -> Unit, err: (String) -> Unit)
+    /** Адрес точки на карте (нажали по карте) — по координатам. Best-effort: пусто → остаётся «Точка на карте». */
+    fun reverse(lat: Double, lon: Double, cb: (String) -> Unit) {}
 }
 
 /**
@@ -133,6 +135,19 @@ object OsmNav : NavProvider {
                 }
             }
             main.post { r.fold({ cb(it) }, { err("Поиск недоступен: ${it.message}") }) }
+        }
+    }
+
+    override fun reverse(lat: Double, lon: Double, cb: (String) -> Unit) {
+        io.execute {
+            val name = runCatching {
+                val j = JSONObject(get("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&accept-language=ru&zoom=18"))
+                val a = j.optJSONObject("address")
+                val road = a?.optString("road").orEmpty()
+                val house = a?.optString("house_number").orEmpty()
+                listOf(road, house).filter { it.isNotBlank() }.joinToString(", ").ifBlank { j.optString("display_name").substringBefore(",") }
+            }.getOrDefault("")
+            if (name.isNotBlank()) main.post { cb(name) }
         }
     }
 
@@ -238,6 +253,45 @@ class NavRepo(private val ctx: Context) {
         favorites = list
         Prefs.put(ctx, Prefs.FAVORITES_PLACES, JSONArray(list.map { it.toJson() }).toString())
     }
+
+    // ---- Поиск на карте: маркеры результатов, нажатая точка, история ----
+    /** Результаты поиска — показываются маркерами на карте, пока открыт поиск. */
+    var pins by mutableStateOf<List<Place>>(emptyList())
+    /** Выделенный результат (нажали в списке или на маркере). */
+    var selectedPin by mutableStateOf<Place?>(null)
+    /** Точка, по которой нажали на карте, — ждёт подтверждения «Маршрут сюда». */
+    var tapTarget by mutableStateOf<Place?>(null)
+
+    /** История поиска (последние выбранные места). */
+    var recents by mutableStateOf(loadRecents())
+        private set
+
+    private fun loadRecents(): List<Place> = runCatching {
+        val a = JSONArray(Prefs.str(ctx, Prefs.RECENT_PLACES) ?: "[]")
+        (0 until a.length()).mapNotNull { Place.fromJson(a.getString(it)) }
+    }.getOrDefault(emptyList())
+
+    fun rememberRecent(p: Place) {
+        val list = (listOf(p) + recents.filterNot { it.lat == p.lat && it.lon == p.lon }).take(10)
+        recents = list
+        Prefs.put(ctx, Prefs.RECENT_PLACES, JSONArray(list.map { it.toJson() }).toString())
+    }
+
+    fun clearRecents() { recents = emptyList(); Prefs.put(ctx, Prefs.RECENT_PLACES, "[]") }
+
+    /** Нажали на карту: показать точку и адрес (запрашивается в фоне), ждём подтверждения маршрута. */
+    fun tapOnMap(lat: Double, lon: Double) {
+        tapTarget = Place("Точка на карте", "", lat, lon)
+        runCatching {
+            provider.reverse(lat, lon) { name ->
+                val t = tapTarget
+                if (t != null && t.lat == lat && t.lon == lon) tapTarget = t.copy(name = name)
+            }
+        }
+    }
+
+    /** Скрыть маркеры результатов и нажатую точку (поиск закрыт). */
+    fun clearPins() { pins = emptyList(); selectedPin = null; tapTarget = null }
 
     fun isFavorite(p: Place) = favorites.any { it.lat == p.lat && it.lon == p.lon }
     fun toggleFavorite(p: Place) =
