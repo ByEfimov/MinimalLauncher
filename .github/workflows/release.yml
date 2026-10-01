@@ -66,16 +66,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$YATOKEN" ]; then echo "YANDEX_DISK_TOKEN не задан — пропускаю"; exit 0; fi
-          FILE="MinimalDrive-$VERSION.apk"
+          export FILE="MinimalDrive-$VERSION.apk"
           AUTH="Authorization: OAuth $YATOKEN"
-          MK=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive")
-          PUB=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/publish?path=%2FMinimalDrive")
+          export MK=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive")
+          export PUB=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/publish?path=%2FMinimalDrive")
           UP=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/upload?path=%2FMinimalDrive%2F$FILE&overwrite=true")
           HREF=$(echo "$UP" | python3 -c "import sys,json;print(json.load(sys.stdin).get('href',''))" 2>/dev/null)
-          UPC=""
-          if [ -n "$HREF" ]; then UPC=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -T "$FILE" "$HREF"); fi
-          META=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive&fields=public_url")
-          PUBLIC_URL=$(echo "$META" | python3 -c "import sys,json;print(json.load(sys.stdin).get('public_url',''))" 2>/dev/null)
-          printf '{"public_url":"%s","mkdir":"%s","publish":"%s","upload":"%s"}' "$PUBLIC_URL" "$MK" "$PUB" "$UPC" > yadisk.json
+          export UPC=""
+          if [ -n "$HREF" ]; then export UPC=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -T "$FILE" "$HREF"); fi
+          META=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive")
+          export PUBLIC_URL=$(echo "$META" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('public_url') or d.get('public_key') or '')" 2>/dev/null)
+          export RAW=$(echo "$META" | python3 -c "import sys,json;d=json.load(sys.stdin);print(json.dumps({k:d.get(k) for k in ['public_url','public_key','type','error','message']}))" 2>/dev/null)
+          python3 -c "import json,os;print(json.dumps({'public_url':os.environ.get('PUBLIC_URL',''),'mkdir':os.environ.get('MK',''),'publish':os.environ.get('PUB',''),'upload':os.environ.get('UPC',''),'raw':os.environ.get('RAW','')}))" > yadisk.json
           cat yadisk.json
           gh release upload "v$VERSION" yadisk.json --clobber || true
