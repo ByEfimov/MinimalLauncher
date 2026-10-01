@@ -63,6 +63,7 @@ jobs:
       - name: Mirror APK to Yandex Disk (optional)
         env:
           YATOKEN: ${{ secrets.YANDEX_DISK_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$YATOKEN" ]; then echo "YANDEX_DISK_TOKEN не задан — пропускаю"; exit 0; fi
           FILE="MinimalDrive-$VERSION.apk"
@@ -71,4 +72,9 @@ jobs:
           curl -s -X PUT -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/publish?path=%2FMinimalDrive" >/dev/null || true
           HREF=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources/upload?path=%2FMinimalDrive%2F$FILE&overwrite=true" | python3 -c "import sys,json;print(json.load(sys.stdin).get('href',''))")
           if [ -n "$HREF" ]; then curl -s -X PUT -T "$FILE" "$HREF" && echo "Залито на Яндекс.Диск: /MinimalDrive/$FILE"; fi
-          curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive&fields=public_url" | python3 -c "import sys,json;print('PUBLIC_URL:',json.load(sys.stdin).get('public_url',''))" || true
+          PUBLIC_URL=$(curl -s -H "$AUTH" "https://cloud-api.yandex.net/v1/disk/resources?path=%2FMinimalDrive&fields=public_url" | python3 -c "import sys,json;print(json.load(sys.stdin).get('public_url',''))")
+          echo "PUBLIC_URL: $PUBLIC_URL"
+          # публикуем ссылку публичной папки как ассет релиза, чтобы её можно было прочитать
+          printf '{"public_url":"%s"}' "$PUBLIC_URL" > yadisk.json
+          gh release upload "v$VERSION" yadisk.json --clobber || true
+        # gh авторизуется через GITHUB_TOKEN ниже
