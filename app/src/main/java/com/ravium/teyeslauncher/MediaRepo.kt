@@ -116,18 +116,36 @@ class MediaRepo(private val ctx: Context) {
     private fun active(st: Int?) = st == PlaybackState.STATE_PLAYING || st == PlaybackState.STATE_BUFFERING ||
         st == PlaybackState.STATE_CONNECTING || st == PlaybackState.STATE_FAST_FORWARDING || st == PlaybackState.STATE_REWINDING
 
-    /** Pause every session that belongs to the other tab. */
+    /**
+     * CarPlay / CarLink / проекция телефона сами управляют аудиофокусом эксклюзивно.
+     * Если лаунчер тоже начнёт их паузить/переключать — начинается «война пауз» и музыка ломается и там, и там.
+     * Поэтому такие приложения мы НЕ трогаем и под них не подстраиваемся.
+     */
+    private fun isProjection(pkg: String?): Boolean {
+        if (pkg == null) return false
+        if (pkg in Known.CARLINK) return true
+        if (Apps.resolve(ctx, Prefs.CARLINK, Known.CARLINK) == pkg) return true
+        val p = pkg.lowercase()
+        return listOf("carlink", "zlink", "phonelink", "carlife", "carplay", "autokit", "easyconn", "autolink", "mirror", "hicar", "projection")
+            .any { p.contains(it) }
+    }
+
+    /** Pause every session that belongs to the other tab — но НИКОГДА не проекцию (CarPlay/CarLink). */
     private fun pauseOthers(s: Source) {
-        controllers.filter { !inSource(it.packageName, s) && it.packageName != ctx.packageName && active(it.playbackState?.state) }
+        controllers.filter { !inSource(it.packageName, s) && it.packageName != ctx.packageName && !isProjection(it.packageName) && active(it.playbackState?.state) }
             .forEach { runCatching { it.transportControls.pause() } }
     }
 
     /**
      * Two separate players: whatever starts playing (steering-wheel keys, the phone, the Yandex app) becomes the
-     * selected tab, and the other tab's player is paused.
+     * selected tab, and the other tab's player is paused. CarPlay/CarLink исключены — ими рулит система.
      */
     private fun onStateChanged(c: MediaController, st: PlaybackState?) {
         if (st?.state != PlaybackState.STATE_PLAYING || c.packageName == ctx.packageName) return
+        // проекция играет — не вмешиваемся вообще (иначе ломается музыка и в ней, и в Яндексе)
+        if (isProjection(c.packageName)) return
+        // если сейчас активна проекция — тоже не трогаем чужие сессии
+        if (controllers.any { isProjection(it.packageName) && active(it.playbackState?.state) }) return
         val s = if (isMain(c.packageName)) Source.YANDEX else Source.BLUETOOTH
         if (s != source) { source = s; Prefs.put(ctx, Prefs.SOURCE, s.name) }
         pauseOthers(s)
