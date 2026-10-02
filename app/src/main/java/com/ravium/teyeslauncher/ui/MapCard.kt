@@ -191,7 +191,9 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
             if (cam != null && remember(s.settingsVersion) { Prefs.bool(ctx, Prefs.CAMERA_WARN, true) }) CameraChip(cam)
             s.updater.available?.let { rel ->
                 if (!s.updater.busy) StatusChip("Доступно обновление ${rel.version} — установить") { s.updater.install() }
-                else StatusChip(s.updater.status)
+                else Box(Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xD9101315)).padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    LoaderRow(s.updater.status.ifEmpty { "Обновляю…" }, textColor = C.Text2)
+                }
             }
             when {
                 s.nav.busy && s.nav.route == null -> Box(Modifier.clip(RoundedCornerShape(14.dp)).background(Color(0xD9101315)).padding(horizontal = 14.dp, vertical = 10.dp)) { LoaderRow("Строю маршрут…", textColor = C.Text2) }
@@ -209,7 +211,11 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
         // bottom-right: [к машине] above one pill with [домой | поиск]
         Column(Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 14.dp), horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (!ctl.following) RoundButton(Icons.Outlined.MyLocation, "К машине") { ctl.recenter() }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !ctl.following,
+                enter = if (InstantUi) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.scaleIn(initialScale = 0.6f) + androidx.compose.animation.fadeIn(),
+                exit = if (InstantUi) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.scaleOut(targetScale = 0.6f) + androidx.compose.animation.fadeOut(),
+            ) { RoundButton(Icons.Outlined.MyLocation, "К машине") { ctl.recenter() } }
             Row(
                 Modifier.clip(RoundedCornerShape(30.dp)).background(Color(0xB3101315)).border(Hairline, Color(0x33FFFFFF), RoundedCornerShape(30.dp)),
                 verticalAlignment = Alignment.CenterVertically

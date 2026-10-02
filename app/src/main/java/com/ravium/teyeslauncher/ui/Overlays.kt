@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -69,10 +70,14 @@ fun BoxScope.Overlays(s: LauncherState) {
     // Search is special: it does NOT cover the map — list on one side, the live map stays on the other.
     if (o is Overlay.Search) { SearchPanel(s, o.setHome); return }
     AnimatedVisibility(o != null && o !is Overlay.Search, enter = if (InstantUi) androidx.compose.animation.EnterTransition.None else fadeIn(), exit = fadeOut(), modifier = Modifier.matchParentSize()) {
+        // контент экрана мягко всплывает (scale + подъём + проявление); при смене экрана — заново
+        val appearKey = o?.let { it::class.simpleName + ((it as? Overlay.SettingsCat)?.id ?: "") }
+        val (a, sc, dy) = rememberAppear(key = appearKey, fromScale = 0.975f, rise = 20f)
         Box(
             Modifier.fillMaxSize().background(Color(0xF20A0C0D))
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
                 .padding(horizontal = 33.dp, vertical = 28.dp)
+                .graphicsLayer { alpha = a; scaleX = sc; scaleY = sc; translationY = dy }
         ) {
             when (o) {
                 is Overlay.Drawer -> AppGrid(s, "Приложения", drawer = true) { pkg -> s.overlay = null; Apps.launch(s.activity, pkg) }
@@ -138,7 +143,7 @@ private fun AppGrid(s: LauncherState, title: String, drawer: Boolean, onReset: (
         Spacer(Modifier.height(14.dp))
         val list = apps
         if (list == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Загрузка…", style = t(18f, C.Muted)) }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { LoaderRow("Загружаю приложения…", textColor = C.Text2) }
             return@Column
         }
         val byPkg = list.associateBy { it.pkg }
@@ -192,7 +197,7 @@ internal fun UpdateRow(s: LauncherState, info: String? = null) {
         u.status.ifEmpty { "Версия ${BuildConfig.VERSION_NAME} · нажмите, чтобы проверить" },
         onClick = { if (rel != null) u.install() else u.check() }, info = info
     ) {
-        if (u.busy) Text("…", style = t(18f, C.Muted)) else if (rel != null) StatusDot(false, C.Yellow)
+        if (u.busy) DotWaveLoader(dot = 5.dp, dots = 3) else if (rel != null) StatusDot(false, C.Yellow)
         Spacer(Modifier.width(10.dp)); Chevron()
     }
 }
@@ -359,8 +364,8 @@ fun OptimizePage(s: LauncherState) {
                     val (free, total) = disk
                     Spacer(Modifier.height(12.dp))
                     Box(Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(14.dp)).background(C.YellowBg).border(1.5.dp, C.YellowBorder, RoundedCornerShape(14.dp))
-                        .clickable { if (!busy) clean() }, contentAlignment = Alignment.Center) {
-                        Text(if (busy) "Очищаю…" else "Освободить память", style = t(17f, C.Text, FontWeight.Medium))
+                        .bounceClick(enabled = !busy) { clean() }, contentAlignment = Alignment.Center) {
+                        if (busy) LoaderRow("Очищаю память…", textColor = C.Text) else Text("Освободить память", style = t(17f, C.Text, FontWeight.Medium))
                     }
                     Spacer(Modifier.height(10.dp))
                     Text("Хранилище: свободно %.1f из %.0f ГБ".format(free, total) + if (total > 0 && free / total < 0.1f) " — почти заполнено, это замедляет систему" else "",
@@ -400,7 +405,7 @@ fun OptimizePage(s: LauncherState) {
 internal fun CandidateList(list: List<Optimizer.Candidate>?, empty: String, onOpen: (String) -> Unit) {
     val ctx = LocalContext.current
     when {
-        list == null -> Text("Загрузка…", style = t(15f, C.Muted), modifier = Modifier.padding(6.dp))
+        list == null -> LoaderRow("Загружаю список…", modifier = Modifier.padding(6.dp))
         list.isEmpty() -> Text(empty, style = t(15f, C.Muted), modifier = Modifier.padding(6.dp))
         else -> list.take(30).forEach { c ->
             RowCard(c.label, if (c.system) "${c.reason} · системное — можно отключить" else c.reason, onClick = { onOpen(c.pkg) }) {
@@ -872,7 +877,7 @@ private fun WelcomeScreen(s: LauncherState) {
                             focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
                             focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
                     )
-                    if (loading) Text("Ищу…", style = t(16f, C.Muted), modifier = Modifier.padding(6.dp))
+                    if (loading) LoaderRow("Ищу адрес…", modifier = Modifier.padding(8.dp))
                     Spacer(Modifier.height(8.dp))
                     androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(results.size) { i ->

@@ -94,34 +94,39 @@ val CardShape = RoundedCornerShape(16.dp)
  * Приятная «пружинка» при нажатии: элемент слегка уменьшается под пальцем и упруго возвращается.
  * Отключается в тестах (InstantUi). Заменяет обычный .clickable без ряби.
  */
+// ---- Единые «пружины» движения: быстро, упруго, без вялого раскачивания ----
+/** Отклик на нажатие — очень быстрый и тугой. */
+fun <T> pressSpec() = androidx.compose.animation.core.spring<T>(
+    dampingRatio = 0.72f, stiffness = androidx.compose.animation.core.Spring.StiffnessHigh)
+/** Появление/укладка элементов — мягкая пружина с лёгким «доводом». */
+fun <T> settleSpec() = androidx.compose.animation.core.spring<T>(
+    dampingRatio = 0.82f, stiffness = 420f)
+
 @Composable
-fun Modifier.bounceClick(enabled: Boolean = true, scaleDown: Float = 0.94f, onClick: () -> Unit): Modifier {
+fun Modifier.bounceClick(enabled: Boolean = true, scaleDown: Float = 0.965f, onClick: () -> Unit): Modifier {
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by androidx.compose.animation.core.animateFloatAsState(
-        if (pressed && !InstantUi) scaleDown else 1f,
-        androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = androidx.compose.animation.core.Spring.StiffnessMedium),
-        label = "bounce",
-    )
+        if (pressed && !InstantUi) scaleDown else 1f, pressSpec(), label = "bounce")
     return this
-        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .graphicsLayer { scaleX = scale; scaleY = scale; val l = 1f - (1f - scale) * 0.6f; alpha = l }
         .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
 }
 
 /**
- * Мягкое появление: лёгкий «наезд» (scale) + проявление. Для карточек/плашек, которые всплывают.
- * Возвращает alpha/scale, которые нужно повесить на graphicsLayer. Отключено в тестах.
+ * Мягкое появление: лёгкий «наезд» (scale) + подъём (translateY) + проявление.
+ * Возвращает (alpha, scale, dy) для graphicsLayer. Отключено в тестах.
  */
 @Composable
-fun rememberAppear(key: Any? = Unit, fromScale: Float = 0.92f): Pair<Float, Float> {
-    if (InstantUi) return 1f to 1f
+fun rememberAppear(key: Any? = Unit, fromScale: Float = 0.96f, rise: Float = 14f): Triple<Float, Float, Float> {
+    if (InstantUi) return Triple(1f, 1f, 0f)
     var shown by remember(key) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(key) { shown = true }
     val alpha by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else 0f,
-        androidx.compose.animation.core.tween(220), label = "appearA")
-    val scale by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else fromScale,
-        androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow), label = "appearS")
-    return alpha to scale
+        androidx.compose.animation.core.tween(190, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "appearA")
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else fromScale, settleSpec(), label = "appearS")
+    val dy by androidx.compose.animation.core.animateFloatAsState(if (shown) 0f else rise, settleSpec(), label = "appearY")
+    return Triple(alpha, scale, dy)
 }
 
 /** Exactly one physical pixel. The UI is scaled to the screen, so "1.dp" would be a blurry 0.9–1.2 px line. */

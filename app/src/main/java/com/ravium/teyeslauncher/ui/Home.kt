@@ -114,8 +114,11 @@ fun LauncherRoot(s: LauncherState) {
                     when (s.page) { Page.TILES -> TilesPage(s); Page.REMINDERS -> RemindersPage(s); Page.OPTIMIZE -> OptimizePage(s); Page.HOME -> {} } } }
                 else androidx.compose.animation.AnimatedContent(targetState = s.page, label = "page", transitionSpec = {
                     val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
-                    (androidx.compose.animation.slideInHorizontally { it * dir / 4 } + androidx.compose.animation.fadeIn()) togetherWith
-                        (androidx.compose.animation.slideOutHorizontally { -it * dir / 4 } + androidx.compose.animation.fadeOut())
+                    val slideIn = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.85f, stiffness = 420f)
+                    val fade = androidx.compose.animation.core.tween<Float>(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                    (androidx.compose.animation.slideInHorizontally(slideIn) { it * dir / 7 } + androidx.compose.animation.fadeIn(fade)) togetherWith
+                        (androidx.compose.animation.slideOutHorizontally(slideIn) { -it * dir / 7 } + androidx.compose.animation.fadeOut(fade)) using
+                        androidx.compose.animation.SizeTransform(clip = false)
                 }) { p ->
                     if (p != Page.HOME) Box(Modifier.fillMaxSize().background(C.Bg)) {
                         when (p) {
@@ -158,10 +161,10 @@ private fun VolumePopover(s: LauncherState) {
         }
     }
     // клик вне плашки — закрыть
-    val (alpha, scale) = rememberAppear()
+    val (alpha, scale, dy) = rememberAppear(rise = 10f)
     Box(Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { s.volumePanel = false }) {
         Box(Modifier.align(Alignment.TopEnd).padding(top = 112.dp, end = 30.dp)
-            .graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.9f, 0f) }
+            .graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale; translationY = dy; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.9f, 0f) }
             .width(360.dp).clip(RoundedCornerShape(22.dp)).background(Color(0xF21A1D20)).border(Hairline, Color(0x33FFFFFF), RoundedCornerShape(22.dp))
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
             .padding(20.dp)) {
@@ -225,8 +228,8 @@ private fun PlaceCard(s: LauncherState, p: Place, modifier: Modifier) {
         if (r[0] >= 1000) "%.1f км".format(r[0] / 1000) else "${r[0].toInt()} м"
     }
     val fav = s.nav.isFavorite(p)
-    val (alpha, scale) = rememberAppear(key = p.lat to p.lon)
-    Column(modifier.graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale }
+    val (alpha, scale, dy) = rememberAppear(key = p.lat to p.lon, rise = 18f)
+    Column(modifier.graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale; translationY = dy }
         .clip(CardShape).background(CardBrush).border(Hairline, C.Stroke, CardShape).padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(52.dp).clip(CircleShape).background(Color(0x33FF5B6B)), contentAlignment = Alignment.Center) {
