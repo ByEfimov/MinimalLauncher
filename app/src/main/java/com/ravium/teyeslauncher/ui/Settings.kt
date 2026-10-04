@@ -204,6 +204,15 @@ fun SettingsCategory(s: LauncherState, id: String) {
             right = {
                 sw("Bluetooth: открывать BT-экран магнитолы", Prefs.BT_OPEN_APP, false,
                     "На некоторых прошивках TEYES звук с телефона переключается на Bluetooth, только когда открыт штатный BT-экран. Включите, если на вкладке Bluetooth нет звука.")
+                RowCard("Обход белых списков (VPN)",
+                    if (Vpn.installed(ctx)) Apps.label(ctx, Vpn.app(ctx)) + " · кнопка на карте" else "Не настроен — нажмите",
+                    info = "Открывает приложение-обход (Happ и др.) кнопкой на главном и показывает, включён ли VPN. " +
+                        "Можно вставить ссылку-подписку и импортировать её в Happ. Сам туннель поднимает приложение-обход.",
+                    onClick = { s.overlay = Overlay.Vpn }) {
+                    val ic = remember(s.settingsVersion) { Apps.icon(ctx, Vpn.app(ctx)) }
+                    if (ic != null) Image(ic, null, Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)), filterQuality = FilterQuality.High)
+                    Spacer(Modifier.width(8.dp)); Chevron()
+                }
                 Section("При включении зажигания")
                 sw("Продолжить музыку", Prefs.AUTO_PLAY, true, "Через несколько секунд после включения магнитолы продолжает играть то, что играло перед выключением.")
                 sw("Открыть навигатор", Prefs.AUTO_NAV, false, "Сразу после включения открывает выбранный навигатор на весь экран.")

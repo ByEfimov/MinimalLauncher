@@ -40,6 +40,7 @@ sealed interface Overlay {
     data object Dock : Overlay
     data object HomeLayout : Overlay
     data object Offline : Overlay
+    data object Vpn : Overlay
     data object Wheel : Overlay
     data object TileCatalog : Overlay
     data object Odometer : Overlay

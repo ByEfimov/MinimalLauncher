@@ -91,6 +91,7 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.Search -> {}   // отрисовывается отдельно (SearchPanel) — не поверх карты
                 is Overlay.ApiKey -> ApiKeyScreen(s)
                 is Overlay.Gis2Key -> Gis2KeyScreen(s)
+                is Overlay.Vpn -> VpnScreen(s)
                 is Overlay.WeatherKey -> WeatherKeyScreen(s)
                 is Overlay.ProxyKey -> ProxyKeyScreen(s)
                 is Overlay.Welcome -> WelcomeScreen(s)
@@ -709,6 +710,72 @@ private fun ApiKeyScreen(s: LauncherState) {
             Text("Сохранить и перезапустить", style = t(18f, C.Text, FontWeight.Medium))
         }
         YandexMaps.error?.takeIf { key.isNotEmpty() }?.let { Text("Состояние: $it", style = t(14f, C.Muted), modifier = Modifier.padding(6.dp)) }
+    }
+}
+
+@Composable
+private fun VpnScreen(s: LauncherState) {
+    val ctx = LocalContext.current
+    val v = s.settingsVersion
+    var sub by remember { mutableStateOf(Prefs.str(ctx, Prefs.VPN_SUB) ?: "") }
+    val clip = ctx.getSystemService(ClipboardManager::class.java)
+    val appPkg = remember(v) { Vpn.app(ctx) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        OverlayHeader("Обход белых списков (VPN)") { s.overlay = Overlay.Settings }
+        Text("Для обхода нужен отдельный клиент (Happ, v2rayNG, Hiddify…). Лаунчер открывает его одной кнопкой на главном " +
+            "и показывает, включён ли VPN. Само подключение (вкл/выкл) делается в клиенте — Android не разрешает включать чужой VPN за него.",
+            style = t(15f, C.Text2), modifier = Modifier.padding(start = 6.dp, top = 4.dp, bottom = 14.dp))
+
+        RowCard("Приложение-обход",
+            if (appPkg != null) Apps.label(ctx, appPkg) else "Не установлено — нажмите, чтобы выбрать",
+            info = "Какой клиент открывает кнопка «Обход». По умолчанию — Happ. Можно выбрать v2rayNG, Hiddify, NekoBox и другие.",
+            onClick = {
+                s.pick("Приложение-обход", onReset = { Prefs.put(ctx, Prefs.VPN_APP, null); s.settingsVersion++ }) { p ->
+                    Prefs.put(ctx, Prefs.VPN_APP, p); s.settingsVersion++
+                }
+            }) {
+            val ic = remember(appPkg) { Apps.icon(ctx, appPkg) }
+            if (ic != null) Image(ic, null, Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)), filterQuality = FilterQuality.High)
+            Spacer(Modifier.width(8.dp)); Chevron()
+        }
+        if (appPkg == null) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Pill("Скачать Happ (happ.su)") { Vpn.openSite(ctx) } }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("Ссылка-подписка (хранится только на этой магнитоле):", style = t(15f, C.Text2), modifier = Modifier.padding(start = 6.dp, bottom = 8.dp))
+        androidx.compose.material3.TextField(
+            value = sub, onValueChange = { sub = it.trim() },
+            modifier = Modifier.fillMaxWidth().height(72.dp).clip(CardShape).border(Hairline, C.Stroke, CardShape),
+            placeholder = { Text("https://…", style = t(18f, C.Muted)) },
+            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 16.sp, color = C.Text),
+            singleLine = true,
+            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
+                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pill("Вставить из буфера") { clip.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim()?.let { sub = it } }
+            Pill("Очистить") { sub = "" }
+        }
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.fillMaxWidth().height(60.dp).clip(CardShape).background(C.Card).border(Hairline, C.Stroke, CardShape)
+            .clickable { Prefs.put(ctx, Prefs.VPN_SUB, sub.ifEmpty { null }); s.settingsVersion++; Apps.toast(ctx, "Сохранено") },
+            contentAlignment = Alignment.Center) { Text("Сохранить подписку", style = t(17f, C.Text, FontWeight.Medium)) }
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.fillMaxWidth().height(60.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
+            .clickable { Prefs.put(ctx, Prefs.VPN_SUB, sub.ifEmpty { null }); s.settingsVersion++; Vpn.importSub(ctx) },
+            contentAlignment = Alignment.Center) { Text("Добавить подписку в приложение", style = t(17f, C.Text, FontWeight.Medium)) }
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.fillMaxWidth().height(60.dp).clip(CardShape).background(C.Card).border(Hairline, C.Stroke, CardShape)
+            .clickable { if (!Vpn.open(ctx)) Apps.toast(ctx, "Приложение-обход не выбрано") },
+            contentAlignment = Alignment.Center) { Text("Открыть приложение-обход", style = t(17f, C.Text, FontWeight.Medium)) }
+        Spacer(Modifier.height(14.dp))
+        Text("Как пользоваться: 1) установите Happ, 2) вставьте сюда ссылку-подписку и «Добавить подписку в приложение», " +
+            "3) в Happ выберите сервер с обходом белых списков и подключитесь. Дальше кнопка «Обход» на карте открывает Happ, " +
+            "а её цвет показывает, включён ли VPN.", style = t(14f, C.Muted), modifier = Modifier.padding(6.dp))
     }
 }
 

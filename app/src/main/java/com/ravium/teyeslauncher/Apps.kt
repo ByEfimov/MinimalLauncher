@@ -13,6 +13,8 @@ object Prefs {
     const val PHONE = "phone_package"
     const val BT_MUSIC = "bluetooth_package"
     const val CARLINK = "carlink_package"
+    const val VPN_APP = "vpn_app"                 // приложение-обход (Happ и т.п.)
+    const val VPN_SUB = "vpn_sub"                 // ссылка-подписка (хранится только на устройстве)
     const val SOURCE = "music_source"
     const val LIMITS = "speed_limits"
     const val LIMIT_TOLERANCE = "limit_tolerance"   // km/h over the limit before the speed turns red
@@ -89,6 +91,9 @@ object Known {
     // Bluetooth music sessions: FYT/TEYES bt app or the stock Android A2DP-sink service.
     val BT_SESSIONS = listOf("com.syu.bt", "com.syu.btapp", "com.syu.bluetooth", "com.syu.btmusic", "com.android.bluetooth")
     val CARLINK = listOf("com.syu.carlink", "com.zjinnova.zlink", "com.suding.carlink", "com.carlink.phonelink")
+    // Приложения-обходы (VPN/прокси с подпиской). Happ — по умолчанию.
+    val VPN = listOf("com.happproxy", "com.v2ray.ang", "app.hiddify.com", "moe.nb4a", "com.github.kr328.clash",
+        "com.github.metacubex.clashmeta", "io.nekohasekai.sagernet", "org.amnezia.vpn", "com.wireguard.android")
 }
 
 data class AppEntry(val pkg: String, val label: String, val icon: ImageBitmap?)

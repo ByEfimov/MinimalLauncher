@@ -13,6 +13,7 @@ import android.view.MotionEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.StarOutline
+import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -197,6 +199,9 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
     }
     // камеру при новом маршруте не трогаем — продолжаем вести за машиной (без отъезда на весь маршрут)
     val provider = remember(s.settingsVersion) { mapProvider(ctx) }
+    // состояние VPN для кнопки «Обход» — опрашиваем нечасто
+    var vpnOn by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { while (true) { vpnOn = Vpn.active(ctx); delay(3000) } }
     Box(modifier.clip(CardShape).background(Color(0xFF111315)).border(Hairline, C.Stroke, CardShape)) {
         when {
             provider == "yandex" -> YandexLayer(s, ctl, Modifier.fillMaxSize())
@@ -256,6 +261,11 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
                 }
                 Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
                 PillIcon(Icons.Outlined.Search, "Поиск") { s.overlay = com.ravium.teyeslauncher.Overlay.Search() }
+                // «Обход» (VPN): тап — открыть приложение-обход (или настройки, если не выбрано); долгое — настройки.
+                // зелёный значок = VPN включён.
+                Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
+                PillIconLong(Icons.Outlined.VpnKey, "Обход", tint = if (vpnOn) C.GuideGreen else Color.White,
+                    onClick = { Vpn.onTap(s) }, onLong = { s.overlay = com.ravium.teyeslauncher.Overlay.Vpn })
                 // «Скачать карту» показываем здесь, только если карта текущего района ещё не скачана
                 // (иначе кнопка не нужна — доступ к списку остаётся в Настройках). Доступно только с Яндексом.
                 val areaSaved = OfflineMaps.version.let { remember(it) { OfflineMaps.currentAreaSaved() } }
@@ -299,6 +309,16 @@ private fun RoundButton(icon: ImageVector, label: String, modifier: Modifier = M
 private fun PillIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
     Box(Modifier.size(width = 62.dp, height = 56.dp).bounceClick(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, label, tint = Color.White, modifier = Modifier.size(27.dp))
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun PillIconLong(icon: ImageVector, label: String, tint: Color, onClick: () -> Unit, onLong: () -> Unit) {
+    Box(Modifier.size(width = 62.dp, height = 56.dp)
+        .combinedClickable(onClick = onClick, onLongClick = onLong),
+        contentAlignment = Alignment.Center) {
+        Icon(icon, label, tint = tint, modifier = Modifier.size(27.dp))
     }
 }
 

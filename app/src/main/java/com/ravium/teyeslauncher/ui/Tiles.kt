@@ -93,6 +93,7 @@ object TileCatalog {
         TileDef("places", "Избранные места", "Полезное", "Дом и избранное — маршрут в одно касание", listOf(M, W, L), Icons.Outlined.StarOutline),
         TileDef("search", "Куда едем", "Полезное", "Поиск адреса", listOf(S, M), Icons.Outlined.Search),
         TileDef("navigator", "Навигатор", "Полезное", "Открыть приложение навигации", listOf(S, M), Icons.Outlined.NearMe),
+        TileDef("vpn", "Обход (VPN)", "Переключатели", "Открыть приложение-обход; зелёный — VPN включён", listOf(S, M), Icons.Outlined.VpnKey),
         TileDef("app", "Приложение", "Полезное", "Любое приложение на плитке", listOf(S, M), Icons.Outlined.Apps),
         TileDef("volume", "Громкость", "Переключатели", "Ползунок громкости музыки", listOf(T, M, W), Icons.Outlined.VolumeUp),
         TileDef("brightness", "Яркость", "Переключатели", "Ползунок яркости экрана", listOf(T, M, W), Icons.Outlined.LightMode),
@@ -431,6 +432,7 @@ private fun tileAction(s: LauncherState, tile: TileSpec): TileState {
         "places" -> TileState("")
         "search" -> TileState("Найти адрес", onClick = { s.overlay = Overlay.Search() })
         "navigator" -> TileState(Apps.label(ctx, Apps.resolve(ctx, Prefs.NAV, Known.NAV)), onClick = { s.openNavigator() })
+        "vpn" -> { val on = Vpn.active(ctx); TileState(if (on) "Вкл" else if (Vpn.installed(ctx)) "Выкл" else "Нет приложения", active = on, onClick = { Vpn.onTap(s) }) }
         "volume" -> {
             s.media.version   // перечитываем при изменении громкости
             val frac = s.media.volumeFraction()
