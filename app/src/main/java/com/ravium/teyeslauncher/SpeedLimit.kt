@@ -210,7 +210,7 @@ class SpeedLimit {
 
     private fun download(url: String, query: String, lat: Double, lon: Double, updateUrban: Boolean = true): Area {
         val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 6000; c.readTimeout = 15000
+        c.connectTimeout = 10000; c.readTimeout = 23000
         c.requestMethod = "POST"; c.doOutput = true
         c.setRequestProperty("User-Agent", "MinimalDrive/0.9 (personal TEYES launcher)")
         c.outputStream.use { it.write(("data=" + URLEncoder.encode(query, "UTF-8")).toByteArray()) }

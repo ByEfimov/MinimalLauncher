@@ -95,22 +95,28 @@ class Vehicle(private val ctx: Context) {
         }
     }
 
+    private var lastSaved = 0L
+
     private fun onFix(l: Location) {
         val now = SystemClock.elapsedRealtime()
         val isGps = l.provider == LocationManager.GPS_PROVIDER
         // Prefer real GPS; other providers only when GPS has been silent for 5 s.
         if (!isGps && now - lastGpsFix < 5000) return
-        if (l.hasAccuracy() && l.accuracy > 150) return
         if (isGps) lastGpsFix = now
+        // ВАЖНО: грубые фиксы (большая погрешность) раньше отбрасывались целиком — из-за этого позиция
+        // могла не появиться никогда («Поиск GPS…» навсегда, погода не грузилась). Теперь позицию принимаем
+        // всегда (карте и погоде хватает примерной), а точные вычисления (одометр/скорость) считаем только по точным фиксам.
+        val precise = !l.hasAccuracy() || l.accuracy <= 50f
+        val usableForSpeed = !l.hasAccuracy() || l.accuracy <= 150f
 
         var mps: Float? = if (l.hasSpeed() && l.speed > 0.3f) l.speed else null
         val p = prev
-        if (mps == null && p != null) {
+        if (mps == null && p != null && usableForSpeed) {
             val dt = (l.time - p.time) / 1000f
             if (dt in 0.4f..10f) mps = l.distanceTo(p) / dt
         }
         if (l.hasSpeed() && l.speed <= 0.3f && mps == null) mps = 0f
-        if (mps != null) {
+        if (mps != null && usableForSpeed) {
             smooth = if (smooth == 0f) mps else smooth * 0.5f + mps * 0.5f
             val kmh = (smooth * 3.6f).roundToInt()
             speedKmh = if (kmh < 3) 0 else kmh.coerceAtMost(260)
@@ -128,11 +134,16 @@ class Vehicle(private val ctx: Context) {
         if (l.hasBearing() && (mps ?: 0f) > 2.5f) bearing = l.bearing
         else if (p != null && speedKmh >= 8 && l.distanceTo(p) > 8) bearing = p.bearingTo(l).let { if (it < 0) it + 360 else it }
 
-        prev = l
+        if (precise || prev == null) prev = l
         location = l
         lastFix = now
         lastFixAt = now
         fixVersion++
+        // запоминаем последнюю позицию — чтобы погода/карта работали сразу после запуска, до фикса GPS
+        if (now - lastSaved > 20_000) {
+            lastSaved = now
+            Prefs.put(ctx, "last_lat", l.latitude.toString()); Prefs.put(ctx, "last_lon", l.longitude.toString())
+        }
         onFix?.invoke(l)
         if (Prefs.bool(ctx, Prefs.LIMITS, true)) {
             limits.onLocation(l, speedKmh, bearing)
@@ -159,6 +170,11 @@ class Vehicle(private val ctx: Context) {
         providers = ok
         started = ok.isNotEmpty()
         if (location == null) location = ok.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
+        // ещё нет фикса — берём последнюю сохранённую позицию, чтобы погода/карта работали сразу (не «Поиск GPS…»)
+        if (location == null) {
+            val la = Prefs.str(ctx, "last_lat")?.toDoubleOrNull(); val lo = Prefs.str(ctx, "last_lon")?.toDoubleOrNull()
+            if (la != null && lo != null) location = Location("restored").apply { latitude = la; longitude = lo }
+        }
         if (location != null) fixVersion++
     }
 

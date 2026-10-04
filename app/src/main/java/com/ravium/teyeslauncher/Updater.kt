@@ -118,12 +118,17 @@ class Updater(private val ctx: Context) {
                 val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
                 val id = pi.createSession(params)
                 pi.openSession(id).use { session ->
-                    var url = URL(r.apkUrl)
-                    var c = url.openConnection() as HttpURLConnection
-                    c.instanceFollowRedirects = true
-                    c.connectTimeout = 10000; c.readTimeout = 30000
-                    // GitHub redirects to its CDN
-                    if (c.responseCode in 300..399) { url = URL(c.getHeaderField("Location")); c.disconnect(); c = url.openConnection() as HttpURLConnection }
+                    // Яндекс.Диск/CDN иногда отвечает не сразу — даём больше времени и пару повторов.
+                    fun open(u: String): HttpURLConnection {
+                        var url = URL(u)
+                        var c = url.openConnection() as HttpURLConnection
+                        c.instanceFollowRedirects = true
+                        c.connectTimeout = 25000; c.readTimeout = 60000
+                        if (c.responseCode in 300..399) { url = URL(c.getHeaderField("Location")); c.disconnect(); c = url.openConnection() as HttpURLConnection; c.connectTimeout = 25000; c.readTimeout = 60000 }
+                        return c
+                    }
+                    var c = runCatching { open(r.apkUrl) }.getOrNull()
+                    if (c == null) { Thread.sleep(1500); c = open(r.apkUrl) }   // один повтор после паузы
                     c.inputStream.use { input ->
                         session.openWrite("update.apk", 0, -1).use { out -> input.copyTo(out); session.fsync(out) }
                     }
