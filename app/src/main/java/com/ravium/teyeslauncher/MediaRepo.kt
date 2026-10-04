@@ -201,7 +201,7 @@ class MediaRepo(private val ctx: Context) {
         // 3) активная медиасессия — целимся в её реальный поток
         val c = current ?: controllers.firstOrNull { isPlaying(it) }
         val pi = runCatching { c?.playbackInfo }.getOrNull()
-        if (c != null && pi != null && pi.volumeControl != MediaController.PlaybackInfo.VOLUME_CONTROL_FIXED && pi.maxVolume > 0)
+        if (c != null && pi != null && pi.volumeControl != android.media.VolumeProvider.VOLUME_CONTROL_FIXED && pi.maxVolume > 0)
             runCatching { c.setVolumeTo(Math.round(frac * pi.maxVolume).coerceIn(0, pi.maxVolume), 0) }
         version++
     }
@@ -212,7 +212,7 @@ class MediaRepo(private val ctx: Context) {
         runCatching { am.adjustStreamVolume(AudioManager.STREAM_MUSIC, if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI) }
         val c = current ?: controllers.firstOrNull { isPlaying(it) }
         val pi = runCatching { c?.playbackInfo }.getOrNull()
-        if (c != null && pi != null && pi.volumeControl != MediaController.PlaybackInfo.VOLUME_CONTROL_FIXED)
+        if (c != null && pi != null && pi.volumeControl != android.media.VolumeProvider.VOLUME_CONTROL_FIXED)
             runCatching { c.adjustVolume(if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, 0) }
         version++
     }
