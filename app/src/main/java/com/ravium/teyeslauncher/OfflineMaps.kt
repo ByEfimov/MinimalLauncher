@@ -70,6 +70,13 @@ object OfflineMaps {
     var anyDownloading by mutableStateOf(false)
         private set
 
+    /** Регион вокруг текущей точки уже скачан (целиком, пусть и устарел)? Читать вместе с [version]. */
+    fun currentAreaSaved(): Boolean {
+        if (!available) return false
+        val done = setOf(RegionState.COMPLETED, RegionState.OUTDATED, RegionState.NEED_UPDATE)
+        return nearby.any { state(it) in done }
+    }
+
     fun findNearby(lat: Double, lon: Double) {
         val m = manager ?: return
         m.requestRegionsAtPoint(Point(lat, lon), object : RegionsAtPointListener {

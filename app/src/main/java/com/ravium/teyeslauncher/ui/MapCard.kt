@@ -189,6 +189,12 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
             if (!ctl.following && SystemClock.elapsedRealtime() - ctl.lastTouch > 12_000) ctl.following = true
         }
     }
+    // знаем ли мы, что карта текущего района скачана → нужно спросить MapKit про регионы вокруг.
+    // Ключ — координаты, округлённые до ~5 км, чтобы не дёргать на каждый GPS-тик, но обновлять при смене района.
+    val loc = s.vehicle.location
+    LaunchedEffect(loc?.let { (it.latitude * 20).toInt() to (it.longitude * 20).toInt() }, OfflineMaps.available) {
+        if (OfflineMaps.available && loc != null) { OfflineMaps.start(); OfflineMaps.findNearby(loc.latitude, loc.longitude) }
+    }
     // камеру при новом маршруте не трогаем — продолжаем вести за машиной (без отъезда на весь маршрут)
     val provider = remember(s.settingsVersion) { mapProvider(ctx) }
     Box(modifier.clip(CardShape).background(Color(0xFF111315)).border(Hairline, C.Stroke, CardShape)) {
@@ -246,11 +252,16 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
                 }
                 Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
                 PillIcon(Icons.Outlined.Search, "Поиск") { s.overlay = com.ravium.teyeslauncher.Overlay.Search() }
-                Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
-                PillIcon(Icons.Outlined.DownloadForOffline, "Карты без интернета") { s.overlay = com.ravium.teyeslauncher.Overlay.Offline }
-                // dot while a region is downloading
-                if (OfflineMaps.available && OfflineMaps.anyDownloading)
-                    Box(Modifier.offset(x = (-22).dp, y = (-12).dp).size(8.dp).clip(CircleShape).background(C.Yellow))
+                // «Скачать карту» показываем здесь, только если карта текущего района ещё не скачана
+                // (иначе кнопка не нужна — доступ к списку остаётся в Настройках). Доступно только с Яндексом.
+                val areaSaved = OfflineMaps.version.let { remember(it) { OfflineMaps.currentAreaSaved() } }
+                if (OfflineMaps.available && !areaSaved) {
+                    Box(Modifier.width(Hairline).height(30.dp).background(Color(0x33FFFFFF)))
+                    PillIcon(Icons.Outlined.DownloadForOffline, "Скачать карту района") { s.overlay = com.ravium.teyeslauncher.Overlay.Offline }
+                    // dot while a region is downloading
+                    if (OfflineMaps.anyDownloading)
+                        Box(Modifier.offset(x = (-22).dp, y = (-12).dp).size(8.dp).clip(CircleShape).background(C.Yellow))
+                }
             }
         }
 

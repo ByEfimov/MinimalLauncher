@@ -238,6 +238,12 @@ fun SettingsCategory(s: LauncherState, id: String) {
                     onClick = { s.overlay = Overlay.ProxyKey }) { Chevron() }
                 RowCard("Избранные места", "${s.nav.favorites.size} мест", info = "Работа, дача, спортзал… Добавляются звёздочкой в поиске. Маршрут — одно нажатие.",
                     onClick = { s.overlay = Overlay.Favorites }) { Chevron() }
+                RowCard("Карты без интернета",
+                    if (!OfflineMaps.available) "Нужен ключ Яндекс Карт" else "Сохранено: " + (OfflineMaps.cacheSize ?: "…"),
+                    info = "Заранее скачайте область или город — карта, маршруты и поиск будут работать без связи. " +
+                        "На карте кнопка «Скачать карту района» показывается, только пока район ещё не сохранён; " +
+                        "отсюда список доступен всегда. Нужен ключ Яндекс MapKit.",
+                    onClick = { s.overlay = Overlay.Offline }) { Chevron() }
             }
             right = {
                 val style = remember(v) { Prefs.str(ctx, Prefs.MAP_STYLE, "dark") }
