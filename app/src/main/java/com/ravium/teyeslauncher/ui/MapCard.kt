@@ -198,7 +198,11 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
     // камеру при новом маршруте не трогаем — продолжаем вести за машиной (без отъезда на весь маршрут)
     val provider = remember(s.settingsVersion) { mapProvider(ctx) }
     Box(modifier.clip(CardShape).background(Color(0xFF111315)).border(Hairline, C.Stroke, CardShape)) {
-        if (provider == "yandex") YandexLayer(s, ctl, Modifier.fillMaxSize()) else OsmLayer(s, ctl, Modifier.fillMaxSize(), provider)
+        when {
+            provider == "yandex" -> YandexLayer(s, ctl, Modifier.fillMaxSize())
+            provider == "2gis" && Gis2.enabled(ctx) -> Gis2Layer(s, ctl, Modifier.fillMaxSize())
+            else -> OsmLayer(s, ctl, Modifier.fillMaxSize(), provider)
+        }
 
         // top-left: next manoeuvre of OUR route (like Яндекс Карты); without a route — hint from a running navigator
         Column(Modifier.align(Alignment.TopStart).padding(16.dp).widthIn(max = 540.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -276,7 +280,8 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
             if (s.overlay != null) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)) { TapTargetChip(s, t) }
         }
 
-        val credit = when (provider) { "2gis" -> "© 2ГИС"; "yandex" -> null; else -> "© OpenStreetMap" }
+        // у векторного 2ГИС (MapGL) свой копирайт внутри карты — дублировать не нужно
+        val credit = when { provider == "2gis" && !Gis2.enabled(ctx) -> "© 2ГИС"; provider == "osm" -> "© OpenStreetMap"; else -> null }
         if (credit != null) Text(credit, style = TextStyle(fontSize = 10.sp, color = Color(0x99FFFFFF)),
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp))
     }

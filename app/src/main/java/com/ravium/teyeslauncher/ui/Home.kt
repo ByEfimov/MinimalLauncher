@@ -148,18 +148,8 @@ fun LauncherRoot(s: LauncherState) {
 @Composable
 private fun VolumePopover(s: LauncherState) {
     val ctx = LocalContext.current
-    val am = remember { ctx.getSystemService(android.media.AudioManager::class.java) }
-    val max = remember { am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1) }
-    var frac by remember { mutableFloatStateOf(am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / max) }
-    fun apply(f: Float) {
-        val target = (f * max).roundToInt().coerceIn(0, max)
-        runCatching { am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, 0) }
-        var c = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC); var guard = 0
-        while (c != target && guard++ <= max + 1) {
-            am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, if (c < target) android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER, 0)
-            val n = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC); if (n == c) break; c = n
-        }
-    }
+    var frac by remember { mutableFloatStateOf(s.media.volumeFraction()) }
+    fun apply(f: Float) { frac = f.coerceIn(0f, 1f); s.media.setVolumeFraction(frac) }
     // клик вне плашки — закрыть
     val (alpha, scale, dy) = rememberAppear(rise = 10f)
     Box(Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { s.volumePanel = false }) {
@@ -349,10 +339,7 @@ private fun Header(s: LauncherState) {
             SignalBars(s.status.online)
             Spacer(Modifier.width(26.dp))
             Box(Modifier.size(44.dp).clip(CircleShape).clickable { s.volumePanel = !s.volumePanel }, contentAlignment = Alignment.Center) {
-                val muted = remember(s.settingsVersion, s.volumePanel) {
-                    val am = ctx.getSystemService(android.media.AudioManager::class.java)
-                    am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0
-                }
+                val muted = remember(s.settingsVersion, s.volumePanel, s.media.version) { s.media.isMuted() }
                 Icon(if (muted) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp, "Громкость",
                     tint = if (s.volumePanel) C.Yellow else C.Text, modifier = Modifier.size(27.dp))
             }

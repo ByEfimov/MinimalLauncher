@@ -165,6 +165,58 @@ class MediaRepo(private val ctx: Context) {
     private fun isPlaying(c: MediaController?) = c?.playbackState?.state == PlaybackState.STATE_PLAYING ||
         c?.playbackState?.state == PlaybackState.STATE_BUFFERING
 
+    // ---- Громкость ----
+    // На многих магнитолах TEYES музыка идёт мимо STREAM_MUSIC, и setStreamVolume ни на что не влияет.
+    // Поэтому меняем громкость сразу несколькими способами: абсолютно, относительными шагами (если
+    // магнитола игнорирует абсолютную установку) и через активную медиасессию — её контроллер знает
+    // поток, который реально использует плеер.
+    private val audio: AudioManager get() = ctx.getSystemService(AudioManager::class.java)
+
+    fun volumeFraction(): Float {
+        version
+        val pi = runCatching { current?.playbackInfo }.getOrNull()
+        if (pi != null && pi.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE && pi.maxVolume > 0)
+            return pi.currentVolume.toFloat() / pi.maxVolume
+        val mx = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        return audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / mx
+    }
+
+    fun isMuted(): Boolean = volumeFraction() <= 0.001f
+
+    fun setVolumeFraction(f: Float) {
+        val frac = f.coerceIn(0f, 1f)
+        val am = audio
+        val mx = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val t = Math.round(frac * mx).coerceIn(0, mx)
+        // 1) абсолютная установка системного музыкального потока
+        runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, t, 0) }
+        // 2) если магнитола проигнорировала — добиваем относительными шагами
+        runCatching {
+            var c = am.getStreamVolume(AudioManager.STREAM_MUSIC); var g = 0
+            while (c != t && g++ <= mx + 1) {
+                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, if (c < t) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, 0)
+                val n = am.getStreamVolume(AudioManager.STREAM_MUSIC); if (n == c) break; c = n
+            }
+        }
+        // 3) активная медиасессия — целимся в её реальный поток
+        val c = current ?: controllers.firstOrNull { isPlaying(it) }
+        val pi = runCatching { c?.playbackInfo }.getOrNull()
+        if (c != null && pi != null && pi.volumeControl != MediaController.PlaybackInfo.VOLUME_CONTROL_FIXED && pi.maxVolume > 0)
+            runCatching { c.setVolumeTo(Math.round(frac * pi.maxVolume).coerceIn(0, pi.maxVolume), 0) }
+        version++
+    }
+
+    /** Относительный шаг (кнопки руля / жесты): на шаг системного потока. */
+    fun nudgeVolume(up: Boolean) {
+        val am = audio
+        runCatching { am.adjustStreamVolume(AudioManager.STREAM_MUSIC, if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI) }
+        val c = current ?: controllers.firstOrNull { isPlaying(it) }
+        val pi = runCatching { c?.playbackInfo }.getOrNull()
+        if (c != null && pi != null && pi.volumeControl != MediaController.PlaybackInfo.VOLUME_CONTROL_FIXED)
+            runCatching { c.adjustVolume(if (up) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, 0) }
+        version++
+    }
+
     fun nowPlaying(): NowPlaying {
         version
         val c = current

@@ -90,6 +90,7 @@ fun BoxScope.Overlays(s: LauncherState) {
                 is Overlay.Diagnostics -> DiagnosticsScreen(s)
                 is Overlay.Search -> {}   // отрисовывается отдельно (SearchPanel) — не поверх карты
                 is Overlay.ApiKey -> ApiKeyScreen(s)
+                is Overlay.Gis2Key -> Gis2KeyScreen(s)
                 is Overlay.WeatherKey -> WeatherKeyScreen(s)
                 is Overlay.ProxyKey -> ProxyKeyScreen(s)
                 is Overlay.Welcome -> WelcomeScreen(s)
@@ -708,6 +709,49 @@ private fun ApiKeyScreen(s: LauncherState) {
             Text("Сохранить и перезапустить", style = t(18f, C.Text, FontWeight.Medium))
         }
         YandexMaps.error?.takeIf { key.isNotEmpty() }?.let { Text("Состояние: $it", style = t(14f, C.Muted), modifier = Modifier.padding(6.dp)) }
+    }
+}
+
+@Composable
+private fun Gis2KeyScreen(s: LauncherState) {
+    val ctx = LocalContext.current
+    var key by remember { mutableStateOf(Prefs.str(ctx, Prefs.GIS_KEY) ?: "") }
+    val clip = ctx.getSystemService(ClipboardManager::class.java)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        OverlayHeader("2ГИС — ключ карты") { s.overlay = Overlay.SettingsCat("map") }
+        Text("С ключом 2ГИС карта становится настоящей (векторной): родные пробки и маршруты строит сам 2ГИС своей полоской.\n" +
+            "1. На телефоне/компьютере откройте dev.2gis.com (личный кабинет разработчика)\n" +
+            "2. Создайте бесплатный ключ «MapGL JS API» (и «Directions API», если доступно — для маршрутов)\n" +
+            "3. Вставьте ключ сюда и нажмите «Сохранить».\n" +
+            "Без ключа 2ГИС показывается растровыми плитками — без пробок и с нашим построением маршрута.",
+            style = t(16f, C.Text2), modifier = Modifier.padding(start = 6.dp, top = 4.dp, bottom = 16.dp))
+        androidx.compose.material3.TextField(
+            value = key, onValueChange = { key = it.trim() },
+            modifier = Modifier.fillMaxWidth().height(72.dp).clip(CardShape).border(Hairline, C.Stroke, CardShape),
+            placeholder = { Text("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", style = t(20f, C.Muted)) },
+            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 20.sp, color = C.Text),
+            singleLine = true,
+            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                focusedContainerColor = C.Card, unfocusedContainerColor = C.Card, cursorColor = C.Yellow,
+                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pill("Вставить из буфера") { clip.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim()?.let { key = it } }
+            Pill("Удалить ключ") { key = "" }
+        }
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(64.dp).clip(CardShape).background(C.YellowBg).border(1.5.dp, C.YellowBorder, CardShape)
+            .clickable {
+                Prefs.put(ctx, Prefs.GIS_KEY, key.ifEmpty { null })
+                // переключаем карту на 2ГИС, чтобы ключ сразу применился
+                Prefs.put(ctx, Prefs.MAP_PROVIDER, "2gis")
+                s.settingsVersion++
+                Apps.toast(ctx, if (key.isEmpty()) "Ключ удалён" else "Ключ сохранён")
+                s.overlay = Overlay.SettingsCat("map")
+            }, contentAlignment = Alignment.Center) {
+            Text("Сохранить", style = t(18f, C.Text, FontWeight.Medium))
+        }
     }
 }
 

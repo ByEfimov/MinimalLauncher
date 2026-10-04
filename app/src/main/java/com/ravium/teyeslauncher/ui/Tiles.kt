@@ -432,18 +432,10 @@ private fun tileAction(s: LauncherState, tile: TileSpec): TileState {
         "search" -> TileState("Найти адрес", onClick = { s.overlay = Overlay.Search() })
         "navigator" -> TileState(Apps.label(ctx, Apps.resolve(ctx, Prefs.NAV, Known.NAV)), onClick = { s.openNavigator() })
         "volume" -> {
-            val am = ctx.getSystemService(AudioManager::class.java)
-            val cur = am.getStreamVolume(AudioManager.STREAM_MUSIC); val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-            TileState("${cur * 100 / max}%", fraction = cur.toFloat() / max, set = { f ->
-                val target = (f * max).roundToInt().coerceIn(0, max)
-                // TEYES часто игнорирует абсолютную установку — сначала пробуем её, потом добираем шагами (как физические +/-)
-                runCatching { am.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0) }
-                var c = am.getStreamVolume(AudioManager.STREAM_MUSIC); var guard = 0
-                while (c != target && guard++ <= max + 1) {
-                    am.adjustStreamVolume(AudioManager.STREAM_MUSIC, if (c < target) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER, 0)
-                    val n = am.getStreamVolume(AudioManager.STREAM_MUSIC); if (n == c) break; c = n
-                }
-            })
+            s.media.version   // перечитываем при изменении громкости
+            val frac = s.media.volumeFraction()
+            // громкость через активную медиасессию + STREAM_MUSIC (TEYES часто ведёт звук мимо STREAM_MUSIC)
+            TileState("${(frac * 100).roundToInt()}%", fraction = frac, set = { f -> s.media.setVolumeFraction(f) })
         }
         "brightness" -> {
             if (!Settings.System.canWrite(ctx)) TileState("Нужно разрешение", "нажмите, чтобы выдать", onClick = {

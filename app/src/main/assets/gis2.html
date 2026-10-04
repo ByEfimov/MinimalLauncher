@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#111315;overflow:hidden}
+  #map{position:absolute;inset:0;background:#111315}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<!-- плагин маршрутов 2ГИС (встроен локально, т.к. unpkg может быть недоступен в белом списке) -->
+<script>__PLUGIN__</script>
+<script>
+window.GIS = { key: "__KEY__", dir: "__DIR__", dark: __DARK__, traffic: __TRAFFIC__ };
+
+var map=null, dirs=null, carMarker=null, pinMarkers=[], ready=false;
+
+// иконки (SVG data-uri)
+var CAR = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">' +
+  '<circle cx="24" cy="24" r="22" fill="#3D8BFF" opacity="0.18"/>' +
+  '<path d="M24 8 L35 39 L24 32 L13 39 Z" fill="#2F7BF5" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/></svg>');
+function pinSvg(strong){
+  var top = strong ? "#FF5B6B" : "#4E9BFF", bot = strong ? "#E8323F" : "#2F7BF5";
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 30 40">' +
+    '<path d="M15 39 C6 27 2 22 2 14 A13 13 0 0 1 28 14 C28 22 24 27 15 39 Z" fill="'+bot+'" stroke="#fff" stroke-width="2.5"/>' +
+    '<circle cx="15" cy="14" r="5" fill="#fff"/></svg>');
+}
+var PIN = pinSvg(false), PIN_STRONG = pinSvg(true);
+
+function post(name){
+  try { if (window.AndroidGis && AndroidGis[name]) {
+    AndroidGis[name].apply(AndroidGis, Array.prototype.slice.call(arguments, 1));
+  } } catch(e){}
+}
+
+function applyDark(on){ try { document.getElementById('map').style.filter = on ? 'brightness(0.72) saturate(0.9)' : 'none'; } catch(e){} }
+
+function boot(){
+  if (!window.mapgl) { post('onError', 'mapgl не загрузился'); return; }
+  try {
+    map = new mapgl.Map('map', {
+      key: GIS.key,
+      center: [37.6208, 55.7539],
+      zoom: 13, rotation: 0, pitch: 0,
+      zoomControl: false, trafficControl: false
+    });
+  } catch(e){ post('onError', 'map: ' + e); return; }
+  applyDark(!!GIS.dark);
+  map.on('styleload', function(){ try { if (GIS.traffic) map.showTraffic(); } catch(e){} });
+  map.on('touchstart', function(){ post('onGesture'); });
+  map.on('mousedown', function(){ post('onGesture'); });
+  map.on('click', function(e){ var c = e && e.lngLat; if (c) post('onTap', c[1], c[0]); });
+  try { if (mapgl.Directions) dirs = new mapgl.Directions(map, { directionsApiKey: (GIS.dir || GIS.key) }); } catch(e){}
+  ready = true; post('onReady');
+}
+
+// ===== мост из Kotlin =====
+window.gisSetCar = function(lat, lon, bearing, follow, zoom, headingUp){
+  if (!map) return;
+  var co = [lon, lat];
+  if (!carMarker) {
+    try { carMarker = new mapgl.Marker(map, { coordinates: co, icon: CAR, size: [46,46], anchor: [23,23] }); } catch(e){}
+  } else { try { carMarker.setCoordinates(co); } catch(e){} }
+  if (follow) {
+    try { map.setCenter(co); } catch(e){}
+    try { map.setZoom(zoom); } catch(e){}
+    try { map.setRotation(headingUp ? -bearing : 0); } catch(e){}
+  }
+};
+window.gisSetRoute = function(fromLat, fromLon, toLat, toLon){
+  if (!dirs) return;
+  try { dirs.clear(); } catch(e){}
+  try { dirs.carRoute({ points: [[fromLon, fromLat], [toLon, toLat]] }); } catch(e){}
+};
+window.gisClearRoute = function(){ try { if (dirs) dirs.clear(); } catch(e){} };
+window.gisSetPins = function(json){
+  for (var i=0;i<pinMarkers.length;i++){ try { pinMarkers[i].destroy(); } catch(e){} }
+  pinMarkers = [];
+  if (!map) return;
+  try {
+    var arr = JSON.parse(json) || [];
+    for (var j=0;j<arr.length;j++){
+      var p = arr[j];
+      pinMarkers.push(new mapgl.Marker(map, { coordinates: [p.lon, p.lat], icon: p.strong ? PIN_STRONG : PIN, size:[30,40], anchor:[15,40] }));
+    }
+  } catch(e){}
+};
+window.gisSetTraffic = function(on){ try { on ? map.showTraffic() : map.hideTraffic(); } catch(e){} };
+window.gisSetStyle = function(dark){ applyDark(!!dark); };
+</script>
+<script src="https://mapgl.2gis.com/api/js/v1" onload="boot()" onerror="post('onError','скрипт MapGL не загрузился')"></script>
+</body>
+</html>

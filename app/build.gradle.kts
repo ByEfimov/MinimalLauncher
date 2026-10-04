@@ -20,6 +20,8 @@ android {
         // OTA updates: GitHub "owner/repo" whose Releases contain the APK (see gradle.properties).
         // Яндекс Карты: free MapKit key from developer.tech.yandex.ru (empty → OpenStreetMap)
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"${(project.findProperty("yandexMapKitKey") as String?) ?: ""}\"")
+        // 2ГИС MapGL: бесплатный ключ (dev.2gis.com) — родные пробки и маршруты 2ГИС; пусто → растровые плитки 2ГИС
+        buildConfigField("String", "GIS_MAPKIT_KEY", "\"${(project.findProperty("gis2MapKitKey") as String?) ?: ""}\"")
         // TEYES CC3 is ARM; skip x86 MapKit libraries to keep the APK small
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "UPDATE_REPO", "\"${(project.findProperty("updateRepo") as String?) ?: ""}\"")
@@ -44,7 +46,7 @@ android {
             // Small APK for the head unit.
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("shared")
         }
     }
