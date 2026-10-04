@@ -266,7 +266,9 @@ private fun DiagnosticsScreen(s: LauncherState) {
             "Разрешения" to Permissions.steps(ctx).map { (if (it.done) "✓ " else "✗ ") + it.title },
             "Ошибки приложения" to CrashLog.read(ctx).lines().take(8).ifEmpty { listOf("") }.let { l -> if (l.all { it.isBlank() }) listOf("ошибок не было") else l },
             "Интернет-сервисы (нажмите «Проверить сервисы»)" to services.ifEmpty { listOf(if (checking) "проверка…" else "не проверялись") },
-            "Карта" to listOf("Движок: " + (if (YandexMaps.enabled) "Яндекс MapKit" else "OpenStreetMap (Яндекс: ${YandexMaps.error ?: "—"})"),
+            "Карта" to listOf(
+                "На экране: " + when (mapProvider(ctx)) { "2gis" -> "2ГИС"; "yandex" -> "Яндекс MapKit"; else -> "OpenStreetMap" },
+                "Яндекс MapKit: " + (if (YandexMaps.enabled) "ключ есть" else "нет ключа (${YandexMaps.error ?: "—"})"),
                 "Маршруты и поиск: ${s.nav.provider.name}", "Дом: ${s.nav.home?.name ?: "не задан"}"),
             "Bluetooth-музыка" to listOf("Приложение магнитолы: ${BtAudio.describe(ctx)}", "Нажмите «Выбрать BT-приложение», если определилось неверно"),
             "Плееры (сессии)" to s.media.debug(),

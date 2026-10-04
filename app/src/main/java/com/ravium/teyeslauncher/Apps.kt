@@ -29,6 +29,7 @@ object Prefs {
     const val MAP_STYLE = "map_style"             // dark | light | auto
     const val MAP_HEADING = "map_heading"         // rotate map by travel direction
     const val MAP_TRAFFIC = "map_traffic"         // Яндекс пробки
+    const val MAP_PROVIDER = "map_provider"       // osm | yandex | 2gis — какую карту показывать на главном
     const val YANDEX_KEY = "yandex_mapkit_key"    // entered in the app
     const val YANDEX_WEATHER_KEY = "yandex_weather_key"  // Яндекс Погода (белый список РФ)
     const val PROXY_URL = "proxy_url"             // Yandex Cloud функция: погода + ограничения (белый список)

@@ -45,7 +45,9 @@ private val categories = listOf(
         s.media.mainLabel + " · " + Apps.label(s.activity, Apps.resolve(s.activity, Prefs.NAV, Known.NAV))
     },
     Category("map", "Карта и маршруты", Icons.Outlined.Map, Color(0xFF4CD964)) { s ->
-        (if (YandexMaps.enabled) "Яндекс" else "OpenStreetMap") + " · дом " + (if (s.nav.home != null) "задан" else "не задан")
+        val p = Prefs.str(s.activity, Prefs.MAP_PROVIDER, if (YandexMaps.enabled) "yandex" else "osm")
+        val name = when { p == "2gis" -> "2ГИС"; p == "yandex" && YandexMaps.enabled -> "Яндекс"; p == "yandex" -> "Яндекс (нужен ключ)"; else -> "OpenStreetMap" }
+        name + " · дом " + (if (s.nav.home != null) "задан" else "не задан")
     },
     Category("speed", "Скорость и камеры", Icons.Outlined.Speed, Color(0xFFFF6B5A)) { s ->
         if (Prefs.bool(s.activity, Prefs.LIMITS, true)) "Ограничения вкл · +" + Prefs.str(s.activity, Prefs.LIMIT_TOLERANCE, "10") else "Ограничения выкл"
@@ -209,9 +211,18 @@ fun SettingsCategory(s: LauncherState, id: String) {
         }
         "map" -> {
             left = {
-                RowCard("Карта: " + (if (YandexMaps.enabled) "Яндекс" else "OpenStreetMap"),
-                    if (YandexMaps.enabled) "Ключ введён · нажмите, чтобы изменить" else "Нажмите, чтобы ввести ключ Яндекс Карт",
-                    info = "С бесплатным ключом Яндекс MapKit на карте появляются пробки, маршруты с учётом пробок и поиск Яндекса. Без ключа работает OpenStreetMap.",
+                val provider = remember(v) { Prefs.str(ctx, Prefs.MAP_PROVIDER, if (YandexMaps.enabled) "yandex" else "osm") }
+                ChipsRow("Карта на экране", listOf("osm" to "OpenStreetMap", "yandex" to "Яндекс", "2gis" to "2ГИС"), provider,
+                    "Какую карту показывать на главном экране. OpenStreetMap и 2ГИС работают без ключа (их серверы в белом списке РФ). " +
+                        "2ГИС — подробная российская карта с номерами домов и организациями, часто удобнее в городе. " +
+                        "Яндекс даёт пробки и поиск Яндекса, но нужен бесплатный ключ MapKit. Маршруты, поиск и метки работают на любой карте.") { pick ->
+                    Prefs.put(ctx, Prefs.MAP_PROVIDER, pick); changed()
+                    if (pick == "yandex" && !YandexMaps.enabled) s.overlay = Overlay.ApiKey
+                }
+                RowCard("Ключ Яндекс Карт (пробки)",
+                    if (YandexMaps.enabled) "Ключ введён · пробки и поиск Яндекса" else "Нажмите, чтобы ввести ключ MapKit",
+                    info = "С бесплатным ключом Яндекс MapKit доступна карта «Яндекс» с пробками, маршрутами с учётом пробок и поиском Яндекса. " +
+                        "Без ключа выбирайте OpenStreetMap или 2ГИС — они работают всегда.",
                     onClick = { s.overlay = Overlay.ApiKey }) { Chevron() }
                 val home = s.nav.home
                 RowCard("Дом", home?.let { it.name + (if (it.description.isNotBlank()) ", " + it.description else "") } ?: "Не задан — нажмите, чтобы найти адрес",

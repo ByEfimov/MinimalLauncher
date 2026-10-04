@@ -50,9 +50,11 @@ import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
@@ -70,6 +72,15 @@ class MapController {
 }
 
 private val RouteColor = 0xFF3D8BFF.toInt()
+
+/**
+ * Какую карту показывать на главном экране: "osm" | "yandex" | "2gis".
+ * Яндекс требует ключ MapKit — если он не введён, молча откатываемся на OpenStreetMap.
+ */
+fun mapProvider(ctx: Context): String {
+    val p = Prefs.str(ctx, Prefs.MAP_PROVIDER, if (YandexMaps.enabled) "yandex" else "osm")
+    return if (p == "yandex" && !YandexMaps.enabled) "osm" else p
+}
 
 /**
  * Car marker: a rounded navigation arrow (blue gradient, white rim, soft shadow) on a faint halo — used by both map engines.
@@ -179,8 +190,9 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
         }
     }
     // камеру при новом маршруте не трогаем — продолжаем вести за машиной (без отъезда на весь маршрут)
+    val provider = remember(s.settingsVersion) { mapProvider(ctx) }
     Box(modifier.clip(CardShape).background(Color(0xFF111315)).border(Hairline, C.Stroke, CardShape)) {
-        if (YandexMaps.enabled) YandexLayer(s, ctl, Modifier.fillMaxSize()) else OsmLayer(s, ctl, Modifier.fillMaxSize())
+        if (provider == "yandex") YandexLayer(s, ctl, Modifier.fillMaxSize()) else OsmLayer(s, ctl, Modifier.fillMaxSize(), provider)
 
         // top-left: next manoeuvre of OUR route (like Яндекс Карты); without a route — hint from a running navigator
         Column(Modifier.align(Alignment.TopStart).padding(16.dp).widthIn(max = 540.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -253,7 +265,8 @@ fun MapCard(s: LauncherState, modifier: Modifier) {
             if (s.overlay != null) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)) { TapTargetChip(s, t) }
         }
 
-        if (!YandexMaps.enabled) Text("© OpenStreetMap", style = TextStyle(fontSize = 10.sp, color = Color(0x99FFFFFF)),
+        val credit = when (provider) { "2gis" -> "© 2ГИС"; "yandex" -> null; else -> "© OpenStreetMap" }
+        if (credit != null) Text(credit, style = TextStyle(fontSize = 10.sp, color = Color(0x99FFFFFF)),
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp))
     }
 }
@@ -385,6 +398,31 @@ private object OsmTiles {
         -0.278f, -0.933f, 0.311f, 0f, 237.5f,
         0f, 0f, 0f, 1f, 0f,
     ))
+    /** 2ГИС рисует собственную карту — инвертировать её нельзя, просто приглушаем яркость для ночи */
+    val dimFilter = ColorMatrixColorFilter(floatArrayOf(
+        0.60f, 0f, 0f, 0f, 0f,
+        0f, 0.60f, 0f, 0f, 0f,
+        0f, 0f, 0.64f, 0f, 0f,
+        0f, 0f, 0f, 1f, 0f,
+    ))
+
+    /** XYZ-плитки 2ГИС (maps.2gis.com — российский хост, белый список РФ). Ключ не нужен. */
+    fun gisSource(): OnlineTileSourceBase = object : OnlineTileSourceBase(
+        "2GIS", 2, 18, 256, "",
+        arrayOf("https://tile0.maps.2gis.com/", "https://tile1.maps.2gis.com/", "https://tile2.maps.2gis.com/", "https://tile3.maps.2gis.com/")
+    ) {
+        override fun getTileURLString(pMapTileIndex: Long): String {
+            val z = MapTileIndex.getZoom(pMapTileIndex); val x = MapTileIndex.getX(pMapTileIndex); val y = MapTileIndex.getY(pMapTileIndex)
+            return baseUrl + "tiles?x=$x&y=$y&z=$z&v=1&ts=online_sd"
+        }
+    }
+
+    fun source(provider: String) = if (provider == "2gis") gisSource() else TileSourceFactory.MAPNIK
+    fun filter(provider: String, style: String) = when {
+        style == "light" -> null
+        provider == "2gis" -> dimFilter
+        else -> darkFilter
+    }
 }
 
 private fun initOsm(ctx: Context) {
@@ -443,7 +481,7 @@ private class PinsOverlay(private val pin: Bitmap, private val pinStrong: Bitmap
 
 @SuppressLint("ClickableViewAccessibility")
 @Composable
-private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
+private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier, provider: String = "osm") {
     val ctx = LocalContext.current
     val v = s.settingsVersion
     val style = remember(v) { Prefs.str(ctx, Prefs.MAP_STYLE, "dark") }
@@ -468,7 +506,7 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
     val map = remember {
         initOsm(ctx)
         MapView(ctx).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
+            setTileSource(OsmTiles.source(provider))
             setMultiTouchControls(true)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             // sharp tiles: 1:1 (or exactly 2× on high-density screens)
@@ -516,7 +554,12 @@ private fun OsmLayer(s: LauncherState, ctl: MapController, modifier: Modifier) {
             else map.post { runCatching { map.controller.setZoom(16.0); map.controller.animateTo(gps.first()) } }
         }
     }
-    LaunchedEffect(style) { map.overlayManager.tilesOverlay.setColorFilter(if (style == "light") null else OsmTiles.darkFilter); map.invalidate() }
+    // смена провайдера (OSM ⇄ 2ГИС) или стиля — переставляем источник плиток и фильтр
+    LaunchedEffect(provider, style) {
+        runCatching { map.setTileSource(OsmTiles.source(provider)) }
+        map.overlayManager.tilesOverlay.setColorFilter(OsmTiles.filter(provider, style))
+        map.invalidate()
+    }
 
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
