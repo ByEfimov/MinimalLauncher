@@ -112,12 +112,23 @@ object OsmNav : NavProvider {
         } finally { c.disconnect() }
     }
 
+    /**
+     * Сначала пробуем через прокси на Yandex Cloud (белый список РФ) — так поиск и маршруты OSM
+     * работают даже при ограничениях интернета; если прокси не задан или не ответил — напрямую.
+     */
+    private fun getVia(url: String): String {
+        Wx.proxyUrl()?.let { p ->
+            runCatching { return get("$p?action=get&url=" + URLEncoder.encode(url, "UTF-8")) }
+        }
+        return get(url)
+    }
+
     override fun search(query: String, near: Location?, cb: (List<Place>) -> Unit, err: (String) -> Unit) {
         io.execute {
             val q = URLEncoder.encode(query, "UTF-8")
             val bias = near?.let { "&lat=${it.latitude}&lon=${it.longitude}" } ?: ""
             val r = runCatching {
-                val j = JSONObject(get("https://photon.komoot.io/api/?q=$q$bias&limit=10"))
+                val j = JSONObject(getVia("https://photon.komoot.io/api/?q=$q$bias&limit=10"))
                 val f = j.getJSONArray("features")
                 (0 until f.length()).map { i ->
                     val o = f.getJSONObject(i); val p = o.getJSONObject("properties"); val c = o.getJSONObject("geometry").getJSONArray("coordinates")
@@ -130,7 +141,7 @@ object OsmNav : NavProvider {
             }.recoverCatching {
                 // fallback: Nominatim (1 request/second policy — search is only on submit/debounced)
                 val vb = near?.let { "&viewbox=${it.longitude - 1},${it.latitude + 1},${it.longitude + 1},${it.latitude - 1}" } ?: ""
-                val a = JSONArray(get("https://nominatim.openstreetmap.org/search?q=$q&format=json&limit=10&accept-language=ru$vb"))
+                val a = JSONArray(getVia("https://nominatim.openstreetmap.org/search?q=$q&format=json&limit=10&accept-language=ru$vb"))
                 (0 until a.length()).map { i ->
                     val o = a.getJSONObject(i); val full = o.getString("display_name")
                     Place(full.substringBefore(","), full.substringAfter(", ", ""), o.getDouble("lat"), o.getDouble("lon"))
@@ -143,7 +154,7 @@ object OsmNav : NavProvider {
     override fun reverse(lat: Double, lon: Double, cb: (name: String, address: String) -> Unit) {
         io.execute {
             runCatching {
-                val j = JSONObject(get("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&accept-language=ru&zoom=18"))
+                val j = JSONObject(getVia("https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&accept-language=ru&zoom=18"))
                 val a = j.optJSONObject("address")
                 val road = a?.optString("road").orEmpty()
                 val house = a?.optString("house_number").orEmpty()
@@ -164,7 +175,7 @@ object OsmNav : NavProvider {
             var last: Throwable? = null
             for (s in servers) {
                 val r = runCatching {
-                    val j = JSONObject(get("$s$coords?overview=full&geometries=geojson&steps=true"))
+                    val j = JSONObject(getVia("$s$coords?overview=full&geometries=geojson&steps=true"))
                     val route = j.getJSONArray("routes").getJSONObject(0)
                     val c = route.getJSONObject("geometry").getJSONArray("coordinates")
                     val pts = (0 until c.length()).map { val p = c.getJSONArray(it); doubleArrayOf(p.getDouble(1), p.getDouble(0)) }
@@ -340,7 +351,7 @@ class NavRepo(private val ctx: Context) {
      */
     fun routeTo(dest: Place, from: Location?) {
         if (from == null || !fresh(from)) {
-            message = if (from == null) "Нет GPS — маршрут построится, когда появится позиция" else "Уточняю позицию по GPS…"
+            message = "Нет позиции — маршрут построится, когда появится точка на карте"
             pending = dest; pendingSince = SystemClock.elapsedRealtime(); return
         }
         pending = null
@@ -351,12 +362,12 @@ class NavRepo(private val ctx: Context) {
     private var pending: Place? = null
     private var pendingSince = 0L
 
-    /** Fix is recent and precise enough to start a route from. After 20 s of waiting any recent fix will do. */
-    private fun fresh(l: Location): Boolean {
-        val ageMs = (SystemClock.elapsedRealtimeNanos() - l.elapsedRealtimeNanos) / 1_000_000
-        val waitedLong = pending != null && SystemClock.elapsedRealtime() - pendingSince > 20_000
-        return ageMs < 15_000 && (!l.hasAccuracy() || l.accuracy <= 60f || (waitedLong && l.accuracy <= 300f))
-    }
+    /**
+     * Годится ли точка как СТАРТ маршрута. Роутер всё равно привяжет её к ближайшей дороге, а по мере
+     * движения маршрут пересчитается — поэтому строим сразу от той точки, что уже видно на карте
+     * (восстановленной/примерной), не дожидаясь «идеального» GPS. Отклоняем только совсем мусорную позицию.
+     */
+    private fun fresh(l: Location): Boolean = !l.hasAccuracy() || l.accuracy <= 1500f
 
     fun clear() { route = null; progress = null; pending = null; message = null; onRoute?.invoke(null) }
 

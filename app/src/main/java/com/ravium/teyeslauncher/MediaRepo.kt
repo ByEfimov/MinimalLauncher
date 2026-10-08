@@ -136,16 +136,22 @@ class MediaRepo(private val ctx: Context) {
             .forEach { runCatching { it.transportControls.pause() } }
     }
 
+    /** Заглушить всю НЕ-проекционную музыку (прошивку/Яндекс/BT). Саму проекцию не трогаем. */
+    private fun pauseNonProjection() {
+        controllers.filter { it.packageName != ctx.packageName && !isProjection(it.packageName) && active(it.playbackState?.state) }
+            .forEach { runCatching { it.transportControls.pause() } }
+    }
+
     /**
      * Two separate players: whatever starts playing (steering-wheel keys, the phone, the Yandex app) becomes the
-     * selected tab, and the other tab's player is paused. CarPlay/CarLink исключены — ими рулит система.
+     * selected tab, and the other tab's player is paused.
+     *
+     * CarPlay/CarLink (проекция): сами мы её НИКОГДА не паузим (иначе «война пауз» и музыка ломается).
+     * Но когда проекция ЗАИГРАЛА — глушим прочую музыку (прошивку/Яндекс), чтобы не играли два источника разом.
      */
     private fun onStateChanged(c: MediaController, st: PlaybackState?) {
         if (st?.state != PlaybackState.STATE_PLAYING || c.packageName == ctx.packageName) return
-        // проекция играет — не вмешиваемся вообще (иначе ломается музыка и в ней, и в Яндексе)
-        if (isProjection(c.packageName)) return
-        // если сейчас активна проекция — тоже не трогаем чужие сессии
-        if (controllers.any { isProjection(it.packageName) && active(it.playbackState?.state) }) return
+        if (isProjection(c.packageName)) { pauseNonProjection(); return }   // CarLink заиграл → глушим остальное
         val s = if (isMain(c.packageName)) Source.YANDEX else Source.BLUETOOTH
         if (s != source) { source = s; Prefs.put(ctx, Prefs.SOURCE, s.name) }
         pauseOthers(s)

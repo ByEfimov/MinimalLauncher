@@ -89,7 +89,7 @@ object Autostart {
         val app = ctx.applicationContext
         if (Kiosk.enabled(app)) Kiosk.bringHome(app)
         LauncherState.current?.vehicle?.resetTrip()   // new trip starts with the ignition
-        if (Prefs.bool(app, Prefs.AUTO_PLAY, true)) main.postDelayed({
+        if (Prefs.bool(app, Prefs.AUTO_PLAY, false)) main.postDelayed({
             // Give Bluetooth / the player a few seconds to come back, then continue what was playing.
             val am = app.getSystemService(android.media.AudioManager::class.java)
             if (Prefs.str(app, Prefs.SOURCE, "YANDEX") == "BLUETOOTH" && Prefs.bool(app, Prefs.BT_OPEN_APP, false)) { BtAudio.activate(app); return@postDelayed }
