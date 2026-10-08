@@ -61,7 +61,7 @@ fun Gis2Layer(s: LauncherState, ctl: MapController, modifier: Modifier) {
     val headingUp = remember(v) { Prefs.bool(ctx, Prefs.MAP_HEADING, true) }
     val lite = remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }
     val style = remember(v) { Prefs.str(ctx, Prefs.MAP_STYLE, "dark") }
-    val traffic = remember(v) { Prefs.bool(ctx, Prefs.MAP_TRAFFIC, true) } && !lite
+    val traffic = remember(v) { Prefs.bool(ctx, Prefs.MAP_TRAFFIC, true) }   // пробки не зависят от лёгкого режима
 
     val ready = remember { mutableStateOf(false) }
     val err = remember { mutableStateOf<String?>(null) }

@@ -376,7 +376,7 @@ fun OptimizePage(s: LauncherState) {
                         style = t(14f, if (total > 0 && free / total < 0.1f) C.Yellow else C.Muted))
                 }
                 SwitchRow("Автоочистка памяти", remember(v) { Prefs.bool(ctx, Prefs.AUTO_CLEAN, true) }, "При включении зажигания, каждые 30 минут и когда памяти мало. Плеер, навигатор, телефон и CarLink не трогаются.") { Prefs.put(ctx, Prefs.AUTO_CLEAN, it); s.settingsVersion++ }
-                SwitchRow("Лёгкий режим карты", remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }, "Без 3D-наклона и пробок, карта сдвигается реже. Помогает, если карта дёргается.") { Prefs.put(ctx, Prefs.LITE_MAP, it); s.settingsVersion++ }
+                SwitchRow("Лёгкий режим карты", remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }, "Без 3D-наклона, карта сдвигается реже. Помогает, если карта дёргается. На пробки не влияет.") { Prefs.put(ctx, Prefs.LITE_MAP, it); s.settingsVersion++ }
                 Spacer(Modifier.height(6.dp))
                 Section("Анимации системы")
                 val scale = remember(v) { Optimizer.animationScale(ctx) }

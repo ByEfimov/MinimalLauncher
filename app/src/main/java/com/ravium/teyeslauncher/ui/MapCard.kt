@@ -662,7 +662,8 @@ private fun YandexLayer(s: LauncherState, ctl: MapController, modifier: Modifier
     val style = remember(v) { Prefs.str(ctx, Prefs.MAP_STYLE, "dark") }
     val headingUp = remember(v) { Prefs.bool(ctx, Prefs.MAP_HEADING, true) }
     val lite = remember(v) { Prefs.bool(ctx, Prefs.LITE_MAP, false) }
-    val traffic = remember(v) { Prefs.bool(ctx, Prefs.MAP_TRAFFIC, true) } && !lite
+    // пробки НЕ зависят от «лёгкого режима» (тот — только про 3D-наклон и частоту сдвига камеры)
+    val traffic = remember(v) { Prefs.bool(ctx, Prefs.MAP_TRAFFIC, true) }
     var lastCam by remember { mutableStateOf(0L) }
     var yCamAt by remember { mutableStateOf<com.yandex.mapkit.geometry.Point?>(null) }
     var yZoom by remember { mutableStateOf(16.5f) }
