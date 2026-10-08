@@ -28,7 +28,7 @@ object MapkitLocation {
         if (active || !YandexMaps.enabled) return
         runCatching {
             val m = MapKitFactory.getInstance().createLocationManager()
-            val l = object : LocationListener {
+            val l: LocationListener = object : LocationListener {
                 override fun onLocationUpdated(loc: com.yandex.mapkit.location.Location) {
                     val a = Location("mapkit").apply {
                         latitude = loc.position.latitude
