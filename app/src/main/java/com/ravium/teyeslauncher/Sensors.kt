@@ -97,6 +97,9 @@ class Vehicle(private val ctx: Context) {
 
     private var lastSaved = 0L
 
+    /** Внешний фикс (например, от Яндекс MapKit, пока Android ещё не выдал свой GPS). */
+    fun submitExternal(l: Location) = onFix(l)
+
     private fun onFix(l: Location) {
         val now = SystemClock.elapsedRealtime()
         val isGps = l.provider == LocationManager.GPS_PROVIDER
@@ -169,11 +172,22 @@ class Vehicle(private val ctx: Context) {
         runCatching { lm.registerGnssStatusCallback(gnss, android.os.Handler(Looper.getMainLooper())) }
         providers = ok
         started = ok.isNotEmpty()
-        if (location == null) location = ok.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
-        // ещё нет фикса — берём последнюю сохранённую позицию, чтобы погода/карта работали сразу (не «Поиск GPS…»)
+        restoreLast()
+    }
+
+    /**
+     * Пока нет живого фикса — подставляем позицию (последняя известная от системы или сохранённая нами),
+     * чтобы карта/погода/МАРШРУТ работали сразу, а не висели на «Поиск GPS». Вызывается и из start(), и из tick(),
+     * поэтому самовосстанавливается, даже если при первом запуске сохранённой позиции ещё не было.
+     */
+    @SuppressLint("MissingPermission")
+    private fun restoreLast() {
+        if (location != null) return
+        val lm = ctx.getSystemService(LocationManager::class.java)
+        if (hasPermission) location = providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }.maxByOrNull { it.time }
         if (location == null) {
             val la = Prefs.str(ctx, "last_lat")?.toDoubleOrNull(); val lo = Prefs.str(ctx, "last_lon")?.toDoubleOrNull()
-            if (la != null && lo != null) location = Location("restored").apply { latitude = la; longitude = lo }
+            if (la != null && lo != null) location = Location("restored").apply { latitude = la; longitude = lo; accuracy = 300f }
         }
         if (location != null) fixVersion++
     }
@@ -181,6 +195,7 @@ class Vehicle(private val ctx: Context) {
     /** Called every second: drop to 0 when fixes stop (tunnel, parking); retry start. */
     fun tick() {
         if (!started) start()
+        if (location == null) restoreLast()
         if (speedKmh != 0 && SystemClock.elapsedRealtime() - lastFix > 4000) { speedKmh = 0; smooth = 0f }
     }
 

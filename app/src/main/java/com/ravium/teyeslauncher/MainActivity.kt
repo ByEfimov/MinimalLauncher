@@ -143,6 +143,7 @@ class MainActivity : ComponentActivity() {
         YandexMaps.onStart()
         state.media.start()
         state.vehicle.start()
+        MapkitLocation.start(state.vehicle)   // быстрая позиция от MapKit, пока Android GPS ещё ищет
         state.updater.checkDaily()
     }
 
@@ -162,6 +163,7 @@ class MainActivity : ComponentActivity() {
     private var setupShown = false
 
     override fun onStop() {
+        MapkitLocation.stop()
         YandexMaps.onStop()
         super.onStop()
     }
